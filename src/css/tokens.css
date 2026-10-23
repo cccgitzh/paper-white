@@ -1,0 +1,63 @@
+/* ---------------------------------------------------------------
+   设计令牌：颜色 / 间距 / 圆角 / 阴影 / 动效
+   所有组件只引用这里的变量，避免各处硬编码造成视觉漂移。
+   --------------------------------------------------------------- */
+:root {
+  /* 中性色 */
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --surface-2: #f6f8fa;
+  --surface-3: #eef2f6;
+  --line: #e3e7eb;
+  --line-strong: #d2d9e1;
+
+  /* 文字 */
+  --text: #1b2026;
+  --text-2: #57616c;
+  --text-3: #8b959f;
+  --text-4: #b4bcc4;
+
+  /* 强调色 */
+  --accent: #2f6df6;
+  --accent-hover: #2559d8;
+  --accent-soft: #ebf1ff;
+  --accent-ring: rgba(47, 109, 246, .28);
+  --danger: #dd4a4f;
+  --success: #17a673;
+
+  /* 棋盘格（透明底背景） */
+  --checker: #e7ebef;
+  --checker-bg: #f7f9fa;
+
+  /* 尺寸 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+
+  --h-topbar: 56px;
+  --w-panel: 324px;
+
+  /* 阴影 */
+  --shadow-1: 0 1px 2px rgba(18, 25, 35, .06);
+  --shadow-2: 0 4px 16px rgba(18, 25, 35, .10);
+  --shadow-3: 0 16px 48px rgba(18, 25, 35, .20);
+  --shadow-canvas: 0 6px 28px rgba(18, 25, 35, .16);
+
+  /* 动效 */
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --dur-1: .12s;
+  --dur-2: .2s;
+
+  /* 字体 */
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+}

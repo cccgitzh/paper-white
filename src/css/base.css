@@ -1,0 +1,52 @@
+/* 基础重置与排版 */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4, p { margin: 0; }
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+canvas { display: block; }
+
+[hidden] { display: none !important; }
+
+.grow { flex: 1; }
+
+::selection { background: var(--accent-ring); }
+
+/* 滚动条 */
+.panel::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.panel::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb {
+  background: #d7dde4;
+  border-radius: 10px;
+  border: 3px solid var(--surface);
+}
+.panel::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover { background: #c3ccd5; }
+
+/* 焦点可见性：键盘用户能看到焦点，鼠标用户不被打扰 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

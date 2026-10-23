@@ -1,0 +1,24 @@
+{
+  "name": "paper-white",
+  "version": "2.0.0",
+  "description": "图片去底漂白 · 纯前端文档净化工具：去底、倾斜纠正、透视裁剪、打印",
+  "type": "module",
+  "private": true,
+  "keywords": [
+    "image",
+    "document-scan",
+    "background-removal",
+    "perspective-correction",
+    "canvas",
+    "vanilla-js"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "build": "node tools/build.mjs",
+    "test:page": "node tools/test-page.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

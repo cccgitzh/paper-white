@@ -1,0 +1,35 @@
+/* ===============================================================
+   打印样式
+   屏幕上一律隐藏 #printRoot；打印时只保留它。
+   页面尺寸由 JS 动态写入 @page（见 printer.js）。
+   #printRoot 直接挂在 <body> 下、与 .topbar/.workspace 同级。
+   =============================================================== */
+
+#printRoot { display: none; }
+
+@media print {
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    display: block !important;
+  }
+
+  /* 只显示打印内容 */
+  body > *:not(#printRoot) { display: none !important; }
+
+  #printRoot {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #printRoot img {
+    display: block;
+    image-rendering: auto;
+  }
+}

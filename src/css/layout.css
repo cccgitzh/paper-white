@@ -1,0 +1,378 @@
+/* ===============================================================
+   整体布局：顶栏 / 工作区（画布舞台 + 右侧面板）
+   =============================================================== */
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  flex: 0 0 auto;
+  height: var(--h-topbar);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  z-index: 30;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.brand-mark {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  background: linear-gradient(140deg, #4a86ff, #5a5cf0);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(47, 109, 246, .32);
+  flex: 0 0 auto;
+}
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.brand-text strong { font-size: 14px; font-weight: 650; letter-spacing: .2px; }
+.brand-text small { font-size: 11px; color: var(--text-3); }
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 2px;
+}
+
+/* ---------- 工作区 ---------- */
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---------- 画布舞台 ---------- */
+.stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  overflow: hidden;
+  background-color: var(--checker-bg);
+  background-image:
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+  touch-action: none;
+}
+
+/* 画布容器：必须给出确定尺寸，否则子元素 max-height:100% 无法解析，
+   图片会撑破舞台、把裁剪手柄顶出可视区。 */
+.canvas-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+#preview {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: var(--shadow-canvas);
+}
+
+/* 裁剪遮罩层：与 #preview 的显示矩形严格对齐 */
+.crop-overlay {
+  position: absolute;
+  z-index: 12;
+  cursor: crosshair;
+  border-radius: 2px;
+}
+
+/* ---------- 右侧面板 ---------- */
+.panel {
+  flex: 0 0 var(--w-panel);
+  width: var(--w-panel);
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: var(--sp-5);
+  z-index: 20;
+}
+
+.group {
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.group-footer { border-bottom: none; padding-top: var(--sp-3); }
+
+.group > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--sp-4);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: .3px;
+}
+
+.group > h3 i {
+  font-style: normal;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.row { margin-bottom: var(--sp-3); }
+.row:last-child { margin-bottom: 0; }
+
+.row .lab {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.row .lab b {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.row .hint {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-4);
+  line-height: 1.45;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.meta-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.btn-pair { display: flex; gap: var(--sp-2); }
+.btn-pair .btn { flex: 1; min-width: 0; }
+
+/* ---------- 空状态 ---------- */
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-6);
+  color: var(--text-2);
+  pointer-events: none;
+}
+.empty-state > * { pointer-events: auto; }
+
+.empty-icon {
+  width: 72px; height: 72px;
+  margin-bottom: var(--sp-4);
+  display: grid; place-items: center;
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  font-size: 28px;
+  color: var(--text-4);
+  background: rgba(255, 255, 255, .6);
+}
+
+.empty-state h2 { font-size: 16px; font-weight: 650; color: var(--text); margin-bottom: var(--sp-2); }
+.empty-state p { font-size: 12.5px; line-height: 1.8; color: var(--text-2); margin-bottom: var(--sp-4); }
+
+.empty-actions { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.empty-hint { font-size: 11.5px; color: var(--text-3); }
+
+/* ---------- 拖拽提示 ---------- */
+.drop-veil {
+  position: absolute;
+  inset: var(--sp-3);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: rgba(47, 109, 246, .07);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 40;
+}
+.stage.dragover .drop-veil { display: flex; }
+
+/* ---------- 状态栏 ---------- */
+.statusbar {
+  position: absolute;
+  left: var(--sp-4);
+  right: var(--sp-4);
+  bottom: var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: var(--r-md);
+  background: rgba(27, 32, 38, .74);
+  color: rgba(255, 255, 255, .82);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  z-index: 25;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.statusbar.show { opacity: 1; transform: none; }
+.statusbar .dot { width: 3px; height: 3px; border-radius: 50%; background: rgba(255, 255, 255, .4); }
+.statusbar #stName { max-width: 34%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 忙碌提示 ---------- */
+.busy {
+  position: absolute;
+  top: var(--sp-4);
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(27, 32, 38, .9);
+  color: #fff;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-2), transform var(--dur-2) var(--ease);
+  z-index: 45;
+}
+.busy.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255, 255, 255, .3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- 裁剪工具条 / 预览窗 ---------- */
+.crop-actions {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-5);
+  transform: translate(-50%, 8px);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px;
+  border-radius: var(--r-lg);
+  background: rgba(27, 32, 38, .92);
+  box-shadow: var(--shadow-3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  z-index: 30;
+}
+body.cropping .crop-actions { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+/* 裁剪时给底部工具条让出一条道，避免压住左右下角的手柄 */
+body.cropping .stage { padding-bottom: 92px; }
+
+.crop-tip {
+  padding: 0 6px 0 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .6);
+  white-space: nowrap;
+}
+
+.crop-panel {
+  position: absolute;
+  right: var(--sp-5);
+  top: var(--sp-5);
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: var(--shadow-3);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transform: scale(.96);
+  pointer-events: none;
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  z-index: 26;
+}
+body.cropping .crop-panel { opacity: 1; transform: none; }
+
+.crop-panel-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+#cropPreview { border-radius: 4px; background: #fff; }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 900px) {
+  .workspace { flex-direction: column; }
+  .panel {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 46vh;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    padding-bottom: var(--sp-4);
+  }
+  .stage { padding: var(--sp-3); }
+  .brand-text small { display: none; }
+  .topbar { padding: 0 var(--sp-3); gap: var(--sp-2); }
+  .crop-panel { display: none; }
+  .crop-actions { bottom: var(--sp-3); }
+  .statusbar { display: none; }
+}
+
+/* 窄屏：顶栏按钮必须能被压缩，否则会撑宽整页 */
+@media (max-width: 640px) {
+  .brand-text { display: none; }
+  .divider { display: none; }
+  .topbar { gap: 6px; padding: 0 10px; }
+  .topbar-actions { gap: 6px; }
+  .topbar-actions .btn { padding: 7px 10px; font-size: 12px; }
+  .topbar-actions .btn-icon { width: 28px; padding: 6px 0; }
+  .empty-state { padding: var(--sp-4); }
+  .empty-state p { font-size: 12px; }
+  .crop-tip { display: none; }
+}

@@ -1,0 +1,3564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!-- 构建产物：由 `npm run build` 从 index.html + src/ 生成，请勿直接修改 -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="图片去底漂白 · 把灰黄纸底洗成纯白，支持透视裁剪、倾斜纠正与打印。纯前端本地处理，图片不上传。">
+<title>图片去底漂白 · 文档净化工作台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232f6df6'/><text x='16' y='23' font-size='18' text-anchor='middle' fill='white'>漂</text></svg>">
+<style>
+/* ===== src/css/tokens.css ===== */
+/* ---------------------------------------------------------------
+   设计令牌：颜色 / 间距 / 圆角 / 阴影 / 动效
+   所有组件只引用这里的变量，避免各处硬编码造成视觉漂移。
+   --------------------------------------------------------------- */
+:root {
+  /* 中性色 */
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --surface-2: #f6f8fa;
+  --surface-3: #eef2f6;
+  --line: #e3e7eb;
+  --line-strong: #d2d9e1;
+
+  /* 文字 */
+  --text: #1b2026;
+  --text-2: #57616c;
+  --text-3: #8b959f;
+  --text-4: #b4bcc4;
+
+  /* 强调色 */
+  --accent: #2f6df6;
+  --accent-hover: #2559d8;
+  --accent-soft: #ebf1ff;
+  --accent-ring: rgba(47, 109, 246, .28);
+  --danger: #dd4a4f;
+  --success: #17a673;
+
+  /* 棋盘格（透明底背景） */
+  --checker: #e7ebef;
+  --checker-bg: #f7f9fa;
+
+  /* 尺寸 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+
+  --h-topbar: 56px;
+  --w-panel: 324px;
+
+  /* 阴影 */
+  --shadow-1: 0 1px 2px rgba(18, 25, 35, .06);
+  --shadow-2: 0 4px 16px rgba(18, 25, 35, .10);
+  --shadow-3: 0 16px 48px rgba(18, 25, 35, .20);
+  --shadow-canvas: 0 6px 28px rgba(18, 25, 35, .16);
+
+  /* 动效 */
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --dur-1: .12s;
+  --dur-2: .2s;
+
+  /* 字体 */
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+}
+</style>
+<style>
+/* ===== src/css/base.css ===== */
+/* 基础重置与排版 */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4, p { margin: 0; }
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+canvas { display: block; }
+
+[hidden] { display: none !important; }
+
+.grow { flex: 1; }
+
+::selection { background: var(--accent-ring); }
+
+/* 滚动条 */
+.panel::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.panel::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb {
+  background: #d7dde4;
+  border-radius: 10px;
+  border: 3px solid var(--surface);
+}
+.panel::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover { background: #c3ccd5; }
+
+/* 焦点可见性：键盘用户能看到焦点，鼠标用户不被打扰 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+</style>
+<style>
+/* ===== src/css/layout.css ===== */
+/* ===============================================================
+   整体布局：顶栏 / 工作区（画布舞台 + 右侧面板）
+   =============================================================== */
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  flex: 0 0 auto;
+  height: var(--h-topbar);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  z-index: 30;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.brand-mark {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  background: linear-gradient(140deg, #4a86ff, #5a5cf0);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(47, 109, 246, .32);
+  flex: 0 0 auto;
+}
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.brand-text strong { font-size: 14px; font-weight: 650; letter-spacing: .2px; }
+.brand-text small { font-size: 11px; color: var(--text-3); }
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 2px;
+}
+
+/* ---------- 工作区 ---------- */
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---------- 画布舞台 ---------- */
+.stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  overflow: hidden;
+  background-color: var(--checker-bg);
+  background-image:
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+  touch-action: none;
+}
+
+/* 画布容器：必须给出确定尺寸，否则子元素 max-height:100% 无法解析，
+   图片会撑破舞台、把裁剪手柄顶出可视区。 */
+.canvas-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+#preview {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: var(--shadow-canvas);
+}
+
+/* 裁剪遮罩层：与 #preview 的显示矩形严格对齐 */
+.crop-overlay {
+  position: absolute;
+  z-index: 12;
+  cursor: crosshair;
+  border-radius: 2px;
+}
+
+/* ---------- 右侧面板 ---------- */
+.panel {
+  flex: 0 0 var(--w-panel);
+  width: var(--w-panel);
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: var(--sp-5);
+  z-index: 20;
+}
+
+.group {
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.group-footer { border-bottom: none; padding-top: var(--sp-3); }
+
+.group > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--sp-4);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: .3px;
+}
+
+.group > h3 i {
+  font-style: normal;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.row { margin-bottom: var(--sp-3); }
+.row:last-child { margin-bottom: 0; }
+
+.row .lab {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.row .lab b {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.row .hint {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-4);
+  line-height: 1.45;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.meta-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.btn-pair { display: flex; gap: var(--sp-2); }
+.btn-pair .btn { flex: 1; min-width: 0; }
+
+/* ---------- 空状态 ---------- */
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-6);
+  color: var(--text-2);
+  pointer-events: none;
+}
+.empty-state > * { pointer-events: auto; }
+
+.empty-icon {
+  width: 72px; height: 72px;
+  margin-bottom: var(--sp-4);
+  display: grid; place-items: center;
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  font-size: 28px;
+  color: var(--text-4);
+  background: rgba(255, 255, 255, .6);
+}
+
+.empty-state h2 { font-size: 16px; font-weight: 650; color: var(--text); margin-bottom: var(--sp-2); }
+.empty-state p { font-size: 12.5px; line-height: 1.8; color: var(--text-2); margin-bottom: var(--sp-4); }
+
+.empty-actions { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.empty-hint { font-size: 11.5px; color: var(--text-3); }
+
+/* ---------- 拖拽提示 ---------- */
+.drop-veil {
+  position: absolute;
+  inset: var(--sp-3);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: rgba(47, 109, 246, .07);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 40;
+}
+.stage.dragover .drop-veil { display: flex; }
+
+/* ---------- 状态栏 ---------- */
+.statusbar {
+  position: absolute;
+  left: var(--sp-4);
+  right: var(--sp-4);
+  bottom: var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: var(--r-md);
+  background: rgba(27, 32, 38, .74);
+  color: rgba(255, 255, 255, .82);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  z-index: 25;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.statusbar.show { opacity: 1; transform: none; }
+.statusbar .dot { width: 3px; height: 3px; border-radius: 50%; background: rgba(255, 255, 255, .4); }
+.statusbar #stName { max-width: 34%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 忙碌提示 ---------- */
+.busy {
+  position: absolute;
+  top: var(--sp-4);
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(27, 32, 38, .9);
+  color: #fff;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-2), transform var(--dur-2) var(--ease);
+  z-index: 45;
+}
+.busy.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255, 255, 255, .3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- 裁剪工具条 / 预览窗 ---------- */
+.crop-actions {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-5);
+  transform: translate(-50%, 8px);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px;
+  border-radius: var(--r-lg);
+  background: rgba(27, 32, 38, .92);
+  box-shadow: var(--shadow-3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  z-index: 30;
+}
+body.cropping .crop-actions { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+/* 裁剪时给底部工具条让出一条道，避免压住左右下角的手柄 */
+body.cropping .stage { padding-bottom: 92px; }
+
+.crop-tip {
+  padding: 0 6px 0 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .6);
+  white-space: nowrap;
+}
+
+.crop-panel {
+  position: absolute;
+  right: var(--sp-5);
+  top: var(--sp-5);
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: var(--shadow-3);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transform: scale(.96);
+  pointer-events: none;
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  z-index: 26;
+}
+body.cropping .crop-panel { opacity: 1; transform: none; }
+
+.crop-panel-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+#cropPreview { border-radius: 4px; background: #fff; }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 900px) {
+  .workspace { flex-direction: column; }
+  .panel {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 46vh;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    padding-bottom: var(--sp-4);
+  }
+  .stage { padding: var(--sp-3); }
+  .brand-text small { display: none; }
+  .topbar { padding: 0 var(--sp-3); gap: var(--sp-2); }
+  .crop-panel { display: none; }
+  .crop-actions { bottom: var(--sp-3); }
+  .statusbar { display: none; }
+}
+
+/* 窄屏：顶栏按钮必须能被压缩，否则会撑宽整页 */
+@media (max-width: 640px) {
+  .brand-text { display: none; }
+  .divider { display: none; }
+  .topbar { gap: 6px; padding: 0 10px; }
+  .topbar-actions { gap: 6px; }
+  .topbar-actions .btn { padding: 7px 10px; font-size: 12px; }
+  .topbar-actions .btn-icon { width: 28px; padding: 6px 0; }
+  .empty-state { padding: var(--sp-4); }
+  .empty-state p { font-size: 12px; }
+  .crop-tip { display: none; }
+}
+</style>
+<style>
+/* ===== src/css/components.css ===== */
+/* ===============================================================
+   组件：按钮 / 分段控件 / 滑块 / 开关 / 输入 / 弹窗 / Toast
+   =============================================================== */
+
+/* ---------- 按钮 ---------- */
+.btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-1), border-color var(--dur-1), color var(--dur-1), box-shadow var(--dur-1);
+}
+
+.btn:hover { background: var(--surface-2); border-color: #c2cad3; }
+.btn:active { background: var(--surface-3); }
+.btn:disabled { opacity: .42; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--surface); border-color: var(--line-strong); }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 550;
+}
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-primary:active { background: #1f4cc4; }
+.btn-primary:disabled:hover { background: var(--accent); border-color: var(--accent); }
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+.btn-ghost:hover { background: var(--surface-3); border-color: transparent; }
+
+.btn-dark {
+  background: rgba(255, 255, 255, .12);
+  border-color: transparent;
+  color: #fff;
+}
+.btn-dark:hover { background: rgba(255, 255, 255, .22); border-color: transparent; }
+.btn-dark:active { background: rgba(255, 255, 255, .3); }
+
+.btn-icon {
+  width: 32px;
+  padding: 7px 0;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.btn-block { width: 100%; }
+
+/* ---------- 分段控件 ---------- */
+.seg {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+}
+
+.seg button {
+  flex: 1;
+  padding: 6px 4px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--dur-1), color var(--dur-1), box-shadow var(--dur-1);
+  white-space: nowrap;
+}
+
+.seg button:hover { color: var(--text); }
+.seg button.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+}
+.seg-sm button { padding: 5px 4px; font-size: 12px; }
+
+/* ---------- 滑块 ---------- */
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  border-radius: 4px;
+  background: var(--surface-3);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(47, 109, 246, .32);
+  transition: transform var(--dur-1);
+}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.12); }
+
+input[type=range]::-moz-range-thumb {
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(47, 109, 246, .32);
+}
+
+input[type=range]:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---------- 开关 ---------- */
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.switch {
+  position: relative;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 21px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--line-strong);
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .22);
+  transition: transform var(--dur-2) var(--ease);
+}
+.switch.on { background: var(--accent); }
+.switch.on::after { transform: translateX(17px); }
+
+/* ---------- 输入 ---------- */
+.input, .select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
+}
+
+.input:focus, .select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%238b959f' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.inline-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ---------- 弹窗 ---------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  background: rgba(20, 26, 34, .46);
+  backdrop-filter: blur(3px);
+  animation: modalIn var(--dur-2) var(--ease);
+}
+
+@keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: min(760px, 100%);
+  background: var(--surface);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: cardIn var(--dur-2) var(--ease);
+}
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h2 { font-size: 15px; font-weight: 650; }
+
+.modal-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.modal-foot-hint { font-size: 11.5px; color: var(--text-3); }
+
+/* 打印弹窗内部 */
+.print-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  background: var(--surface-3);
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, .025) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, .025) 25%, transparent 25%);
+  background-size: 16px 16px;
+  overflow: auto;
+}
+
+#printPreview {
+  background: #fff;
+  box-shadow: var(--shadow-2);
+  border-radius: 1px;
+}
+
+.print-controls {
+  flex: 0 0 288px;
+  width: 288px;
+  padding: var(--sp-4);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.print-note {
+  margin-top: var(--sp-3);
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Toast ---------- */
+.toast-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 78vw;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(27, 32, 38, .92);
+  color: #fff;
+  font-size: 12.5px;
+  box-shadow: var(--shadow-2);
+  animation: toastIn .22s var(--ease);
+}
+.toast.leaving { animation: toastOut .2s var(--ease) forwards; }
+.toast.err { background: rgba(196, 44, 49, .94); }
+.toast.ok { background: rgba(20, 128, 92, .94); }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toastOut {
+  to { opacity: 0; transform: translateY(6px) scale(.97); }
+}
+
+@media (max-width: 900px) {
+  .modal { padding: 0; }
+  .modal-card { width: 100%; max-height: 100%; border-radius: 0; height: 100%; }
+  .modal-body { flex-direction: column-reverse; }
+  .print-controls { flex: 0 0 auto; width: 100%; border-left: none; border-top: 1px solid var(--line); max-height: 46vh; }
+  .modal-foot-hint { display: none; }
+}
+</style>
+<style>
+/* ===== src/css/print.css ===== */
+/* ===============================================================
+   打印样式
+   屏幕上一律隐藏 #printRoot；打印时只保留它。
+   页面尺寸由 JS 动态写入 @page（见 printer.js）。
+   #printRoot 直接挂在 <body> 下、与 .topbar/.workspace 同级。
+   =============================================================== */
+
+#printRoot { display: none; }
+
+@media print {
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    display: block !important;
+  }
+
+  /* 只显示打印内容 */
+  body > *:not(#printRoot) { display: none !important; }
+
+  #printRoot {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #printRoot img {
+    display: block;
+    image-rendering: auto;
+  }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">漂</span>
+    <span class="brand-text">
+      <strong>图片去底漂白</strong>
+      <small>本地处理 · 图片不上传</small>
+    </span>
+  </div>
+
+  <div class="topbar-actions">
+    <button id="btnUndo" class="btn btn-icon" title="撤销 (Ctrl+Z)" disabled>↶</button>
+    <button id="btnRedo" class="btn btn-icon" title="重做 (Ctrl+Shift+Z)" disabled>↷</button>
+    <span class="divider"></span>
+    <button id="btnOpen" class="btn" title="打开图片 (Ctrl+O)">打开图片</button>
+    <button id="btnPrint" class="btn" disabled title="打印 (Ctrl+P)">打印</button>
+    <button id="btnSave" class="btn btn-primary" disabled title="保存图片 (Ctrl+S)">保存图片</button>
+    <input type="file" id="file" accept="image/*" hidden>
+  </div>
+</header>
+
+<main class="workspace">
+
+  <section class="stage" id="stage">
+    <div class="canvas-shell" id="canvasShell">
+      <canvas id="preview" hidden></canvas>
+    </div>
+
+    <canvas id="cropOverlay" class="crop-overlay" hidden></canvas>
+
+    <div class="crop-panel" id="cropPanel">
+      <div class="crop-panel-head">裁剪预览</div>
+      <canvas id="cropPreview"></canvas>
+    </div>
+
+    <div class="crop-actions" id="cropActions">
+      <span class="crop-tip">拖动四个角对齐纸边</span>
+      <button id="cropReset" class="btn btn-dark">重置</button>
+      <button id="cropCancel" class="btn btn-dark">取消</button>
+      <button id="cropApply" class="btn btn-primary">应用 (Enter)</button>
+    </div>
+
+    <div class="empty-state" id="empty">
+      <div class="empty-icon">⇪</div>
+      <h2>把图片拖进来，或点击选择</h2>
+      <p>自动把灰黄纸底洗成纯白，文字保持墨黑锐利。<br>支持 JPG / PNG / WEBP / HEIC（浏览器支持时），也可直接 Ctrl+V 粘贴。</p>
+      <div class="empty-actions">
+        <button class="btn btn-primary" id="btnPick">选择图片</button>
+        <button class="btn" id="btnSample">先看看示例</button>
+      </div>
+      <div class="empty-hint">全部运算在浏览器本地完成，不上传任何服务器</div>
+    </div>
+
+    <div class="drop-veil" id="dropVeil"><span>松手即可导入图片</span></div>
+
+    <div class="busy" id="busy"><span class="spinner"></span><span id="busyText">处理中…</span></div>
+
+    <div class="statusbar" id="statusbar">
+      <span id="stName">未选择图片</span>
+      <span class="dot"></span>
+      <span id="stSize">—</span>
+      <span class="dot"></span>
+      <span id="stTime">—</span>
+      <span class="grow"></span>
+      <span id="stMode">黑白文档</span>
+    </div>
+  </section>
+
+  <aside class="panel">
+
+    <section class="group">
+      <h3><i>1</i>去底</h3>
+      <div class="row">
+        <div class="seg" id="modeSeg">
+          <button data-mode="gray" class="on">黑白文档</button>
+          <button data-mode="color">保留彩色</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="lab"><span>去底强度</span><b id="vStrength">100</b></div>
+        <input type="range" id="strength" min="0" max="100" value="100">
+        <div class="hint">0 = 原图，100 = 完全按纸底归一化</div>
+      </div>
+      <div class="row">
+        <div class="lab"><span>背景范围</span><b id="vRadius">10</b></div>
+        <input type="range" id="radius" min="3" max="30" value="10">
+        <div class="hint">纸底不均匀时调大，字距较密时调小</div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h3><i>2</i>漂白与加深</h3>
+      <div class="row">
+        <div class="lab"><span>黑场 · 加深文字</span><b id="vBlack">40</b></div>
+        <input type="range" id="black" min="0" max="180" value="40">
+      </div>
+      <div class="row">
+        <div class="lab"><span>白场 · 洗白纸底</span><b id="vWhite">252</b></div>
+        <input type="range" id="white" min="180" max="255" value="252">
+      </div>
+      <div class="row">
+        <div class="lab"><span>锐化</span><b id="vSharpen">20</b></div>
+        <input type="range" id="sharpen" min="0" max="100" value="20">
+      </div>
+    </section>
+
+    <section class="group">
+      <h3><i>3</i>校正</h3>
+      <div class="row">
+        <button id="btnDeskew" class="btn btn-block">自动纠正倾斜</button>
+      </div>
+      <div class="row">
+        <div class="lab"><span>手动微调角度</span><b id="vAngle">0.0°</b></div>
+        <input type="range" id="angle" min="-15" max="15" step="0.1" value="0">
+      </div>
+      <div class="row btn-pair">
+        <button id="btnRotL" class="btn">↺ 左转 90°</button>
+        <button id="btnRotR" class="btn">↻ 右转 90°</button>
+      </div>
+      <div class="row btn-pair">
+        <button id="btnCrop" class="btn">透视裁剪</button>
+        <button id="btnClearCrop" class="btn" disabled>取消裁剪</button>
+      </div>
+      <div class="row toggle">
+        <span>反相（黑底白字）</span>
+        <button class="switch" id="invert" role="switch" aria-checked="false"></button>
+      </div>
+    </section>
+
+    <section class="group">
+      <h3><i>4</i>输出</h3>
+      <div class="row">
+        <div class="seg seg-sm" id="fmtSeg">
+          <button data-fmt="png" class="on">PNG</button>
+          <button data-fmt="jpeg">JPG</button>
+          <button data-fmt="webp">WEBP</button>
+        </div>
+      </div>
+      <div class="row" id="qualityRow" hidden>
+        <div class="lab"><span>画质</span><b id="vQuality">92</b></div>
+        <input type="range" id="quality" min="50" max="100" value="92">
+      </div>
+      <div class="row meta-row">
+        <span>导出尺寸</span><b id="outSize">—</b>
+      </div>
+      <div class="row btn-pair">
+        <button id="btnSavePanel" class="btn btn-primary">保存到本地</button>
+        <button id="btnPrintPanel" class="btn">打印…</button>
+      </div>
+    </section>
+
+    <section class="group group-footer">
+      <button id="btnReset" class="btn btn-ghost btn-block">重置全部参数</button>
+    </section>
+
+  </aside>
+</main>
+
+<!-- 打印设置 -->
+<div class="modal" id="printModal" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <h2>打印</h2>
+      <button class="btn btn-icon" id="printClose" title="关闭 (Esc)">✕</button>
+    </header>
+
+    <div class="modal-body">
+      <div class="print-stage">
+        <canvas id="printPreview"></canvas>
+      </div>
+
+      <div class="print-controls">
+        <div class="row">
+          <div class="lab"><span>纸张尺寸</span></div>
+          <select id="paperSel" class="select">
+            <option value="A4">A4 · 210 × 297 mm</option>
+            <option value="A5">A5 · 148 × 210 mm</option>
+            <option value="B5">B5 · 176 × 250 mm</option>
+            <option value="Letter">Letter · 215.9 × 279.4 mm</option>
+            <option value="custom">自定义…</option>
+          </select>
+        </div>
+
+        <div class="row" id="customPaperRow" hidden>
+          <div class="lab"><span>宽 × 高 (mm)</span></div>
+          <div class="inline-inputs">
+            <input type="number" id="paperW" class="input" min="50" max="1000" step="1" value="210">
+            <span>×</span>
+            <input type="number" id="paperH" class="input" min="50" max="1000" step="1" value="297">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="lab"><span>方向</span></div>
+          <div class="seg seg-sm" id="orientSeg">
+            <button data-orient="auto" class="on">自动</button>
+            <button data-orient="portrait">纵向</button>
+            <button data-orient="landscape">横向</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="lab"><span>页边距</span><b id="vMargin">10 mm</b></div>
+          <input type="range" id="margin" min="0" max="30" step="1" value="10">
+        </div>
+
+        <div class="row">
+          <div class="lab"><span>缩放方式</span></div>
+          <div class="seg seg-sm" id="fitSeg">
+            <button data-fit="contain" class="on">适应页面</button>
+            <button data-fit="cover">铺满页面</button>
+          </div>
+        </div>
+
+        <p class="print-note" id="printInfo">—</p>
+      </div>
+    </div>
+
+    <footer class="modal-foot">
+      <span class="modal-foot-hint">将打开系统打印对话框，可选择打印机或「另存为 PDF」</span>
+      <span class="grow"></span>
+      <button class="btn" id="printCancel">取消</button>
+      <button class="btn btn-primary" id="printGo">打印</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* ===== src/js/utils.js ===== */
+/* ===============================================================
+   utils.js —— 无依赖的小工具集合
+   =============================================================== */
+window.DC = window.DC || {};
+
+(function (DC) {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+  /** 创建离屏画布 */
+  function makeCanvas(w, h) {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w));
+    c.height = Math.max(1, Math.round(h));
+    return c;
+  }
+
+  /** 取画布的 2D 上下文（不保留 alpha 时可提速，这里统一默认） */
+  function ctx2d(canvas, opts) {
+    return canvas.getContext("2d", opts || { willReadFrequently: true });
+  }
+
+  /** 触发浏览器下载 */
+  function download(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+  }
+
+  function fmtBytes(n) {
+    if (!n && n !== 0) return "";
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + " KB";
+    return (n / 1024 / 1024).toFixed(1) + " MB";
+  }
+
+  /** 把毫秒格式化成“12 ms / 1.2 s” */
+  function fmtMs(ms) {
+    if (ms < 1000) return Math.round(ms) + " ms";
+    return (ms / 1000).toFixed(1) + " s";
+  }
+
+  /* ---------- Toast ---------- */
+  const toastWrap = () => $("toastWrap");
+
+  function toast(msg, type, duration) {
+    const wrap = toastWrap();
+    if (!wrap) return;
+    const el = document.createElement("div");
+    el.className = "toast" + (type ? " " + type : "");
+    el.textContent = msg;
+    wrap.appendChild(el);
+    const ttl = duration || (type === "err" ? 3600 : 2200);
+    setTimeout(() => {
+      el.classList.add("leaving");
+      setTimeout(() => el.remove(), 220);
+    }, ttl);
+  }
+
+  /* ---------- 节流：一帧最多执行一次 ---------- */
+  function rafThrottle(fn) {
+    let scheduled = false;
+    let lastArgs = null;
+    return function (...args) {
+      lastArgs = args;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        fn.apply(null, lastArgs);
+      });
+    };
+  }
+
+  /** 等两帧，确保样式/布局已经落定（用于测量元素尺寸） */
+  function nextFrame() {
+    return new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    );
+  }
+
+  /* ---------- 文件名校验 ---------- */
+  function safeName(name) {
+    return (name || "image").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
+  }
+
+  DC.utils = {
+    $, $$, clamp, makeCanvas, ctx2d, download, fmtBytes, fmtMs,
+    toast, rafThrottle, nextFrame, safeName,
+  };
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/state.js ===== */
+/* ===============================================================
+   state.js —— 全局状态、参数持久化、撤销/重做
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const LS_KEY = "paperwhite.params.v1";
+
+  const DEFAULT_PARAMS = {
+    mode: "gray",      // gray | color
+    strength: 100,     // 去底强度 0-100
+    radius: 10,        // 背景范围 3-30 (%)
+    black: 40,         // 黑场 0-180
+    white: 252,        // 白场 180-255
+    sharpen: 20,       // 锐化 0-100
+    invert: false,
+    format: "png",     // png | jpeg | webp
+    quality: 92,
+  };
+
+  const DEFAULT_PRINT = {
+    paper: "A4",
+    customW: 210,
+    customH: 297,
+    orientation: "auto",  // auto | portrait | landscape
+    margin: 10,
+    fit: "contain",       // contain | cover
+  };
+
+  const S = {
+    /* 图像 */
+    img: null,        // 原始画布（全分辨率）
+    srcW: 0,
+    srcH: 0,
+    name: "image",
+    meta: "",
+
+    /* 几何 */
+    rotation: 0,      // 0 / 90 / 180 / 270
+    angle: 0,         // 微调倾斜（度）
+    quad: null,       // 透视裁剪四角，归一化坐标，顺序 TL,TR,BR,BL
+
+    /* 参数 */
+    params: Object.assign({}, DEFAULT_PARAMS),
+    print: Object.assign({}, DEFAULT_PRINT),
+
+    /* 运行时缓存 */
+    paperFill: null,
+    bgCache: new Map(),
+    srcRev: 0,        // 每次图像/几何变化 +1，用于让背景缓存失效
+    busy: false,
+    cropMode: false,
+    lastRenderMs: 0,
+    outW: 0,
+    outH: 0,
+  };
+
+  /* ---------- 持久化（只存参数，不存图像） ---------- */
+  function loadParams() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") {
+        if (data.params) Object.assign(S.params, data.params);
+        if (data.print) Object.assign(S.print, data.print);
+      }
+    } catch (e) {
+      /* localStorage 不可用（隐私模式 / file:// 限制）时静默降级 */
+    }
+  }
+
+  let saveTimer = null;
+  function persist() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      try {
+        localStorage.setItem(
+          LS_KEY,
+          JSON.stringify({ params: S.params, print: S.print })
+        );
+      } catch (e) { /* 忽略配额/权限错误 */ }
+    }, 400);
+  }
+
+  /* ---------- 快照与撤销栈 ---------- */
+  const MAX_HISTORY = 40;
+  const history = { stack: [], index: -1 };
+
+  function snapshot() {
+    return JSON.stringify({
+      params: S.params,
+      rotation: S.rotation,
+      angle: S.angle,
+      quad: S.quad,
+    });
+  }
+
+  function restore(snap) {
+    const d = JSON.parse(snap);
+    S.params = Object.assign({}, DEFAULT_PARAMS, d.params);
+    S.rotation = d.rotation || 0;
+    S.angle = d.angle || 0;
+    S.quad = d.quad || null;
+    S.srcRev++;
+    S.bgCache.clear();
+  }
+
+  /** 提交一个可撤销的历史点（在状态变更“之后”调用） */
+  function commit() {
+    const snap = snapshot();
+    if (history.index >= 0 && history.stack[history.index] === snap) return;
+    history.stack = history.stack.slice(0, history.index + 1);
+    history.stack.push(snap);
+    if (history.stack.length > MAX_HISTORY) history.stack.shift();
+    history.index = history.stack.length - 1;
+    persist();
+    DC.store.emit();
+  }
+
+  function resetHistory() {
+    history.stack = [snapshot()];
+    history.index = 0;
+    DC.store.emit();
+  }
+
+  function undo() {
+    if (history.index <= 0) return false;
+    history.index--;
+    restore(history.stack[history.index]);
+    DC.store.emit();
+    return true;
+  }
+
+  function redo() {
+    if (history.index >= history.stack.length - 1) return false;
+    history.index++;
+    restore(history.stack[history.index]);
+    DC.store.emit();
+    return true;
+  }
+
+  const listeners = [];
+  DC.store = {
+    canUndo: () => history.index > 0,
+    canRedo: () => history.index < history.stack.length - 1,
+    commit, undo, redo, resetHistory, persist, loadParams, snapshot, restore,
+    emit() { listeners.forEach((fn) => fn()); },
+    onChange(fn) { listeners.push(fn); },
+  };
+
+  DC.state = S;
+  DC.DEFAULT_PARAMS = DEFAULT_PARAMS;
+  DC.DEFAULT_PRINT = DEFAULT_PRINT;
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/geometry.js ===== */
+/* ===============================================================
+   geometry.js —— 几何预处理：旋转、倾斜检测、画布构建
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const { makeCanvas, ctx2d, clamp } = DC.utils;
+  const S = () => DC.state;
+
+  /* ---------------------------------------------------------------
+     旋转补边的“纸色”
+     用纯白补边会被去底算法当成纸底，导致图片边缘留一圈灰。
+     先量出原图 75 分位亮度当纸色，旋转后再由去底算法统一洗白。
+     --------------------------------------------------------------- */
+  function paperFill() {
+    const s = S();
+    if (s.paperFill) return s.paperFill;
+    if (!s.img) return "#ffffff";
+
+    const n = 64;
+    const small = makeCanvas(n, n);
+    const cx = ctx2d(small);
+    cx.drawImage(s.img, 0, 0, n, n);
+    const d = cx.getImageData(0, 0, n, n).data;
+
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < d.length; i += 4) {
+      hist[(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0]++;
+    }
+    let acc = 0;
+    const target = n * n * 0.75;
+    let v = 255;
+    for (let k = 0; k < 256; k++) {
+      acc += hist[k];
+      if (acc >= target) { v = k; break; }
+    }
+    // 亮度够高才视为“纸质图”；普通照片用白边更自然
+    const g = v >= 175 ? Math.min(255, Math.max(200, v)) : 255;
+    s.paperFill = "rgb(" + g + "," + g + "," + g + ")";
+    return s.paperFill;
+  }
+
+  /* ---------------------------------------------------------------
+     生成 base：旋转（含微调角度）后的整图，不做裁剪。
+     透视裁剪在 perspective.js 里对 base 做单应变换。
+     --------------------------------------------------------------- */
+  function buildBase(maxDim) {
+    const s = S();
+    if (!s.img) return null;
+
+    const deg = s.rotation + s.angle;
+    const rad = (deg * Math.PI) / 180;
+    const c = Math.abs(Math.cos(rad));
+    const sn = Math.abs(Math.sin(rad));
+    const bw = s.srcW * c + s.srcH * sn;
+    const bh = s.srcW * sn + s.srcH * c;
+
+    let scale = 1;
+    if (maxDim && Math.max(bw, bh) > maxDim) scale = maxDim / Math.max(bw, bh);
+
+    const canvas = makeCanvas(bw * scale, bh * scale);
+    const cx = ctx2d(canvas, { willReadFrequently: true });
+    cx.imageSmoothingEnabled = true;
+    cx.imageSmoothingQuality = "high";
+    cx.fillStyle = paperFill();
+    cx.fillRect(0, 0, canvas.width, canvas.height);
+    cx.translate(canvas.width / 2, canvas.height / 2);
+    cx.rotate(rad);
+    cx.scale(scale, scale);
+    cx.drawImage(s.img, -s.srcW / 2, -s.srcH / 2);
+
+    return canvas;
+  }
+
+  /** base（未裁剪）的尺寸，用于导出信息展示 */
+  function baseSize() {
+    const s = S();
+    const deg = s.rotation + s.angle;
+    const rad = (deg * Math.PI) / 180;
+    const c = Math.abs(Math.cos(rad));
+    const sn = Math.abs(Math.sin(rad));
+    return {
+      w: s.srcW * c + s.srcH * sn,
+      h: s.srcW * sn + s.srcH * c,
+    };
+  }
+
+  /* ---------------------------------------------------------------
+     自动纠正倾斜
+     思路：Otsu 取墨点 → 逐角度做水平投影 → 投影平方和最大者即文字行方向。
+     关键：必须“软分箱”（相邻两个 bin 线性分配），否则整角度落格更整齐，
+     打分会被虚假地拉向 0°。
+     --------------------------------------------------------------- */
+  function autoDeskew() {
+    const s = S();
+    if (!s.img) return null;
+
+    const MAX = 900;
+    const sc = Math.min(1, MAX / Math.max(s.srcW, s.srcH));
+    const w = Math.max(8, Math.round(s.srcW * sc));
+    const h = Math.max(8, Math.round(s.srcH * sc));
+
+    const canvas = makeCanvas(w, h);
+    const cx = ctx2d(canvas);
+    cx.fillStyle = "#fff";
+    cx.fillRect(0, 0, w, h);
+    cx.drawImage(s.img, 0, 0, w, h);
+    const d = cx.getImageData(0, 0, w, h).data;
+
+    /* --- Otsu 阈值 --- */
+    const hist = new Array(256).fill(0);
+    for (let p = 0; p < w * h; p++) {
+      const i = p * 4;
+      hist[(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0]++;
+    }
+    const total = w * h;
+    let sumAll = 0;
+    for (let v = 0; v < 256; v++) sumAll += v * hist[v];
+
+    let sumB = 0, wB = 0, best = 0, thr = 128;
+    for (let v = 0; v < 256; v++) {
+      wB += hist[v];
+      if (!wB) continue;
+      const wF = total - wB;
+      if (!wF) break;
+      sumB += v * hist[v];
+      const mB = sumB / wB;
+      const mF = (sumAll - sumB) / wF;
+      const between = wB * wF * (mB - mF) * (mB - mF);
+      if (between > best) { best = between; thr = v; }
+    }
+
+    /* --- 收集墨点 --- */
+    const pts = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] < thr) {
+          pts.push(x, y);
+        }
+      }
+    }
+    if (pts.length < 400) return { angle: null, reason: "empty" };
+
+    /* --- 逐角度打分 --- */
+    const maxTan = Math.tan((12 * Math.PI) / 180);
+    const offset = Math.ceil(w * maxTan) + 4;
+    const bins = h + offset * 2;
+    const histArr = new Float64Array(bins);
+
+    function scoreAt(deg) {
+      const tan = Math.tan((deg * Math.PI) / 180);
+      histArr.fill(0);
+      for (let i = 0; i < pts.length; i += 2) {
+        const pos = pts[i + 1] - pts[i] * tan + offset;
+        const b0 = Math.floor(pos);
+        if (b0 < 0 || b0 >= bins - 1) continue;
+        const fr = pos - b0;
+        histArr[b0] += 1 - fr;
+        histArr[b0 + 1] += fr;
+      }
+      let score = 0;
+      for (let i = 0; i < bins; i++) score += histArr[i] * histArr[i];
+      return score;
+    }
+
+    let bestT = 0, bestScore = -1;
+    for (let t10 = -120; t10 <= 120; t10 += 5) {
+      const sc2 = scoreAt(t10 / 10);
+      if (sc2 > bestScore) { bestScore = sc2; bestT = t10 / 10; }
+    }
+    let refined = bestT, bestScore2 = -1;
+    for (let k = -4; k <= 4; k++) {
+      const t = bestT + k * 0.25;
+      const sc2 = scoreAt(t);
+      if (sc2 > bestScore2) { bestScore2 = sc2; refined = t; }
+    }
+
+    return { angle: clamp(-refined, -15, 15) };
+  }
+
+  DC.geometry = { buildBase, baseSize, paperFill, autoDeskew };
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/enhance.js ===== */
+/* ===============================================================
+   enhance.js —— 去底 / 漂白 / 锐化（核心像素运算）
+
+   算法要点
+   --------
+   纸底估计 = 灰度膨胀（跳过墨迹，取邻域最亮值）+ 盒式模糊（消除块状感）。
+   单纯模糊遇到大块深色区域（粗标题、图章）会把文字一起洗白，所以必须用膨胀。
+   然后 out = in × (255 / 纸底)，纸底被拉到 255，墨迹几乎不变。
+   彩色模式对 R/G/B 分别估一遍，相当于自动白平衡，黄纸底才能真正变白。
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const { makeCanvas, ctx2d } = DC.utils;
+
+  const GAIN_CAP = 2.4;      // 单像素最大增益，防止深色块被过度提亮
+  const BG_SMALL = 320;      // 背景图的长边像素数
+  const CACHE_LIMIT = 6;
+
+  /* ---------- 一维滑动窗口最大值（单调递减队列，O(1)/像素） ---------- */
+  function maxFilter1D(src, dst, w, h, r, horizontal) {
+    const len = horizontal ? w : h;
+    const outer = horizontal ? h : w;
+    const dq = new Int32Array(len + 1);
+
+    for (let o = 0; o < outer; o++) {
+      const base = horizontal ? o * w : o;
+      const step = horizontal ? 1 : w;
+      let head = 0, tail = 0, next = 0;
+
+      for (let i = 0; i < len; i++) {
+        const hi = i + r < len ? i + r : len - 1;
+        while (next <= hi) {
+          const v = src[base + next * step];
+          while (tail > head && src[base + dq[tail - 1] * step] <= v) tail--;
+          dq[tail++] = next++;
+        }
+        const lo = i - r;
+        while (tail > head && dq[head] < lo) head++;
+        dst[base + i * step] = src[base + dq[head] * step];
+      }
+    }
+  }
+
+  /* ---------- 单通道纸底估计 ---------- */
+  function estimateBg(src, sw, sh, r) {
+    const tmp = new Float32Array(sw * sh);
+    const out = new Float32Array(sw * sh);
+    maxFilter1D(src, tmp, sw, sh, r, true);
+    maxFilter1D(tmp, out, sw, sh, r, false);
+
+    // 再模糊一次消除块状感（积分图，O(1)/像素）
+    const rb = Math.max(1, Math.round(r * 0.5));
+    const W = sw + 1;
+    const integral = new Float64Array(W * (sh + 1));
+    for (let y = 0; y < sh; y++) {
+      let rowSum = 0;
+      for (let x = 0; x < sw; x++) {
+        rowSum += out[y * sw + x];
+        integral[(y + 1) * W + (x + 1)] = integral[y * W + (x + 1)] + rowSum;
+      }
+    }
+    const res = new Float32Array(sw * sh);
+    for (let y = 0; y < sh; y++) {
+      const y0 = Math.max(0, y - rb), y1 = Math.min(sh - 1, y + rb);
+      for (let x = 0; x < sw; x++) {
+        const x0 = Math.max(0, x - rb), x1 = Math.min(sw - 1, x + rb);
+        const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+        const sum =
+          integral[(y1 + 1) * W + (x1 + 1)] - integral[y0 * W + (x1 + 1)] -
+          integral[(y1 + 1) * W + x0] + integral[y0 * W + x0];
+        res[y * sw + x] = sum / area;
+      }
+    }
+    return res;
+  }
+
+  /* ---------- 背景图（带缓存） ---------- */
+  function buildBg(canvas, rev) {
+    const S = DC.state;
+    const radiusPct = S.params.radius;
+    const key = canvas.width + "x" + canvas.height + "@" + radiusPct + "#" + rev;
+
+    const hit = S.bgCache.get(key);
+    if (hit) return hit;
+
+    const sc = Math.min(1, BG_SMALL / Math.max(canvas.width, canvas.height));
+    const sw = Math.max(3, Math.round(canvas.width * sc));
+    const sh = Math.max(3, Math.round(canvas.height * sc));
+
+    const small = makeCanvas(sw, sh);
+    const sx = ctx2d(small);
+    sx.fillStyle = "#fff";
+    sx.fillRect(0, 0, sw, sh);
+    sx.drawImage(canvas, 0, 0, sw, sh);
+    const sd = sx.getImageData(0, 0, sw, sh).data;
+
+    const n = sw * sh;
+    const lum = new Float32Array(n);
+    const cr = new Float32Array(n);
+    const cg = new Float32Array(n);
+    const cb = new Float32Array(n);
+    for (let i = 0, p = 0; p < n; p++, i += 4) {
+      cr[p] = sd[i]; cg[p] = sd[i + 1]; cb[p] = sd[i + 2];
+      lum[p] = 0.299 * sd[i] + 0.587 * sd[i + 1] + 0.114 * sd[i + 2];
+    }
+
+    const r = Math.max(1, Math.round(Math.min(sw, sh) * radiusPct / 100));
+    const entry = {
+      w: sw, h: sh,
+      data: estimateBg(lum, sw, sh, r),
+      ch: [
+        estimateBg(cr, sw, sh, r),
+        estimateBg(cg, sw, sh, r),
+        estimateBg(cb, sw, sh, r),
+      ],
+    };
+
+    S.bgCache.set(key, entry);
+    if (S.bgCache.size > CACHE_LIMIT) {
+      S.bgCache.delete(S.bgCache.keys().next().value);
+    }
+    return entry;
+  }
+
+  /* ---------- 锐化（3×3 拉普拉斯） ---------- */
+  function sharpenCanvas(canvas, amount) {
+    const w = canvas.width, h = canvas.height;
+    if (w < 3 || h < 3) return;
+    const cx = ctx2d(canvas);
+    const img = cx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const s = new Uint8ClampedArray(d);
+
+    for (let y = 1; y < h - 1; y++) {
+      const rowUp = (y - 1) * w * 4;
+      const row = y * w * 4;
+      const rowDn = (y + 1) * w * 4;
+      for (let x = 1; x < w - 1; x++) {
+        const i = row + x * 4;
+        for (let c = 0; c < 3; c++) {
+          const v = s[i + c];
+          const nb = s[i - 4 + c] + s[i + 4 + c] + s[rowUp + x * 4 + c] + s[rowDn + x * 4 + c];
+          d[i + c] = v + amount * (4 * v - nb) * 0.25;
+        }
+      }
+    }
+    cx.putImageData(img, 0, 0);
+  }
+
+  /* ---------- 主处理 ----------
+     返回新的 canvas，不修改入参。
+     rev：内容版本号，参与背景缓存 key，避免同尺寸不同内容命中旧缓存。
+  --------------------------------------------------------------- */
+  function process(canvas, rev) {
+    const S = DC.state;
+    const P = S.params;
+    const w = canvas.width, h = canvas.height;
+    const srcData = ctx2d(canvas).getImageData(0, 0, w, h);
+    const d = srcData.data;
+
+    const bg = buildBg(canvas, rev == null ? S.srcRev : rev);
+    const bw = bg.w, bh = bg.h, bd = bg.data;
+    const sxr = bw / w, syr = bh / h;
+
+    const isColor = P.mode === "color";
+    const strength = P.strength / 100;
+    const bp = P.black;
+    const span = Math.max(1, P.white - P.black);
+    const kf = 255 / span;
+    const invert = P.invert;
+
+    const outCanvas = makeCanvas(w, h);
+    const octx = ctx2d(outCanvas);
+    const outImg = octx.createImageData(w, h);
+    const od = outImg.data;
+
+    const chR = bg.ch[0], chG = bg.ch[1], chB = bg.ch[2];
+    const rowA = new Float32Array(w);
+    const rowR = isColor ? new Float32Array(w) : null;
+    const rowG = isColor ? new Float32Array(w) : null;
+    const rowB = isColor ? new Float32Array(w) : null;
+
+    /** 把一个背景通道按行插值到目标宽度 */
+    function fillRow(dst, src, y) {
+      const fy = (y + 0.5) * syr - 0.5;
+      let y0 = Math.floor(fy);
+      let ty = fy - y0;
+      if (y0 < 0) { y0 = 0; ty = 0; }
+      if (y0 > bh - 1) y0 = bh - 1;
+      let y1 = y0 + 1;
+      if (y1 > bh - 1) y1 = bh - 1;
+
+      const o0 = y0 * bw, o1 = y1 * bw;
+      for (let x = 0; x < w; x++) {
+        const fx = (x + 0.5) * sxr - 0.5;
+        let x0 = Math.floor(fx);
+        let tx = fx - x0;
+        if (x0 < 0) { x0 = 0; tx = 0; }
+        if (x0 > bw - 1) x0 = bw - 1;
+        let x1 = x0 + 1;
+        if (x1 > bw - 1) x1 = bw - 1;
+
+        const a = src[o0 + x0] + (src[o0 + x1] - src[o0 + x0]) * tx;
+        const b = src[o1 + x0] + (src[o1 + x1] - src[o1 + x0]) * tx;
+        dst[x] = a + (b - a) * ty;
+      }
+    }
+
+    for (let y = 0; y < h; y++) {
+      fillRow(rowA, bd, y);
+      if (isColor) {
+        fillRow(rowR, chR, y);
+        fillRow(rowG, chG, y);
+        fillRow(rowB, chB, y);
+      }
+
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const r = d[i], g = d[i + 1], bl = d[i + 2];
+
+        if (isColor) {
+          let fr = 255 / Math.max(12, Math.min(255, rowR[x]));
+          let fg = 255 / Math.max(12, Math.min(255, rowG[x]));
+          let fb = 255 / Math.max(12, Math.min(255, rowB[x]));
+          if (fr > GAIN_CAP) fr = GAIN_CAP;
+          if (fg > GAIN_CAP) fg = GAIN_CAP;
+          if (fb > GAIN_CAP) fb = GAIN_CAP;
+          fr = 1 + (fr - 1) * strength;
+          fg = 1 + (fg - 1) * strength;
+          fb = 1 + (fb - 1) * strength;
+
+          let rr = r * fr, gg = g * fg, bb = bl * fb;
+          const lum = 0.299 * rr + 0.587 * gg + 0.114 * bb;
+          let t = (lum - bp) * kf;
+          t = t < 0 ? 0 : t > 255 ? 255 : t;
+          const ratio = lum > 0.5 ? t / lum : 0;
+          rr *= ratio; gg *= ratio; bb *= ratio;
+          if (invert) { rr = 255 - rr; gg = 255 - gg; bb = 255 - bb; }
+
+          od[i] = rr; od[i + 1] = gg; od[i + 2] = bb; od[i + 3] = 255;
+        } else {
+          let bgv = rowA[x];
+          if (bgv < 12) bgv = 12;
+          let f = 255 / bgv;
+          if (f > GAIN_CAP) f = GAIN_CAP;
+          f = 1 + (f - 1) * strength;
+
+          let t = (0.299 * r + 0.587 * g + 0.114 * bl) * f;
+          t = (t - bp) * kf;
+          t = t < 0 ? 0 : t > 255 ? 255 : t;
+          if (invert) t = 255 - t;
+
+          od[i] = od[i + 1] = od[i + 2] = t;
+          od[i + 3] = 255;
+        }
+      }
+    }
+
+    octx.putImageData(outImg, 0, 0);
+
+    const amt = (P.sharpen / 100) * 0.9;
+    if (amt > 0.01) sharpenCanvas(outCanvas, amt);
+
+    return outCanvas;
+  }
+
+  DC.enhance = { process, buildBg, estimateBg, maxFilter1D, sharpenCanvas };
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/perspective.js ===== */
+/* ===============================================================
+   perspective.js —— 透视裁剪的数学与几何约束
+
+   数据模型：quad = [TL, TR, BR, BL]，每点为归一化坐标 {x,y} ∈ [0,1]，
+   坐标系是「旋转后的整图」（也就是 geometry.buildBase 的结果）。
+
+   裁剪 = 求单应矩阵 H，使目标矩形四角映射到 quad 四角，
+   再对目标逐像素反查源图（双线性采样）——
+   这样倾斜拍摄的文档，四条纸边会被真正拉直，而不只是裁掉。
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const { makeCanvas, ctx2d, clamp } = DC.utils;
+
+  const MIN_EDGE_RATIO = 0.015;  // 最短边 ≥ 对角线 1.5%，防止退化成线
+  const RECT_TOL = 0.6;          // 轴对齐矩形判定容差（源图像素）
+
+  /* ---------- 基础 ---------- */
+  function defaultQuad() {
+    return [
+      { x: 0.02, y: 0.02 },
+      { x: 0.98, y: 0.02 },
+      { x: 0.98, y: 0.98 },
+      { x: 0.02, y: 0.98 },
+    ];
+  }
+
+  function cloneQuad(q) {
+    return q.map((p) => ({ x: p.x, y: p.y }));
+  }
+
+  function quadToPx(quad, w, h) {
+    return quad.map((p) => ({ x: p.x * w, y: p.y * h }));
+  }
+
+  function dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  /* ---------- 输出尺寸：取对边平均，减少梯形拉伸 ---------- */
+  function metrics(base, quad) {
+    const w = base.width, h = base.height;
+    const p = quadToPx(quad, w, h);
+    const wTop = dist(p[0], p[1]);
+    const wBot = dist(p[3], p[2]);
+    const hL = dist(p[0], p[3]);
+    const hR = dist(p[1], p[2]);
+    return {
+      outW: Math.max(1, Math.round((wTop + wBot) / 2)),
+      outH: Math.max(1, Math.round((hL + hR) / 2)),
+      px: p,
+    };
+  }
+
+  /* ---------- 凸性判定（四条边叉积同号） ---------- */
+  function isConvex(quad) {
+    let sign = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = quad[i];
+      const b = quad[(i + 1) % 4];
+      const c = quad[(i + 2) % 4];
+      const cr = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+      if (Math.abs(cr) < 1e-9) return false;
+      const s = cr > 0 ? 1 : -1;
+      if (sign === 0) sign = s;
+      else if (s !== sign) return false;
+    }
+    return true;
+  }
+
+  /* ---------- 合法性：在界内 + 凸 + 边够长 ---------- */
+  function isValidQuad(quad, baseW, baseH) {
+    for (const p of quad) {
+      if (!(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)) return false;
+    }
+    if (!isConvex(quad)) return false;
+
+    const diag = Math.hypot(baseW, baseH);
+    const minEdge = diag * MIN_EDGE_RATIO;
+    for (let i = 0; i < 4; i++) {
+      const a = { x: quad[i].x * baseW, y: quad[i].y * baseH };
+      const b = { x: quad[(i + 1) % 4].x * baseW, y: quad[(i + 1) % 4].y * baseH };
+      if (dist(a, b) < minEdge) return false;
+    }
+    return true;
+  }
+
+  /* ---------- 拖拽：单角 ---------- */
+  function moveCorner(quad, idx, nx, ny, baseW, baseH) {
+    const q = cloneQuad(quad);
+    q[idx] = { x: clamp(nx, 0, 1), y: clamp(ny, 0, 1) };
+    return isValidQuad(q, baseW, baseH) ? q : null;
+  }
+
+  /* ---------- 拖拽：整条边（两端同步位移） ---------- */
+  function moveEdge(quad, idx, dx, dy, baseW, baseH) {
+    const q = cloneQuad(quad);
+    const j = (idx + 1) % 4;
+    q[idx] = { x: clamp(q[idx].x + dx, 0, 1), y: clamp(q[idx].y + dy, 0, 1) };
+    q[j] = { x: clamp(q[j].x + dx, 0, 1), y: clamp(q[j].y + dy, 0, 1) };
+    return isValidQuad(q, baseW, baseH) ? q : null;
+  }
+
+  /* ---------- 拖拽：整体平移（碰到边界整体停住，不变形） ---------- */
+  function moveQuad(quad, dx, dy) {
+    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    for (const p of quad) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    const ddx = clamp(dx, -minX, 1 - maxX);
+    const ddy = clamp(dy, -minY, 1 - maxY);
+    return quad.map((p) => ({ x: p.x + ddx, y: p.y + ddy }));
+  }
+
+  /* ---------- 8×8 线性方程组（高斯消元，列主元） ---------- */
+  function solveLinear(A, b) {
+    const n = b.length;
+    for (let col = 0; col < n; col++) {
+      let piv = col;
+      for (let r = col + 1; r < n; r++) {
+        if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
+      }
+      if (Math.abs(A[piv][col]) < 1e-12) return null;
+      if (piv !== col) {
+        const t = A[piv]; A[piv] = A[col]; A[col] = t;
+        const tb = b[piv]; b[piv] = b[col]; b[col] = tb;
+      }
+      const pv = A[col][col];
+      for (let r = col + 1; r < n; r++) {
+        const f = A[r][col] / pv;
+        if (!f) continue;
+        for (let c = col; c < n; c++) A[r][c] -= f * A[col][c];
+        b[r] -= f * b[col];
+      }
+    }
+    const x = new Array(n);
+    for (let r = n - 1; r >= 0; r--) {
+      let s = b[r];
+      for (let c = r + 1; c < n; c++) s -= A[r][c] * x[c];
+      x[r] = s / A[r][r];
+    }
+    return x;
+  }
+
+  /** 求单应矩阵 H，使 to[i] = H(from[i])；返回 [a,b,c,d,e,f,g,h] */
+  function homography(from, to) {
+    const A = [];
+    const b = [];
+    for (let i = 0; i < 4; i++) {
+      const { x, y } = from[i];
+      const { x: u, y: v } = to[i];
+      A.push([x, y, 1, 0, 0, 0, -x * u, -y * u]); b.push(u);
+      A.push([0, 0, 0, x, y, 1, -x * v, -y * v]); b.push(v);
+    }
+    return solveLinear(A, b);
+  }
+
+  /* ---------- 判断是否轴对齐矩形（可走 drawImage 快路径） ---------- */
+  function isAxisRect(px) {
+    return (
+      Math.abs(px[0].y - px[1].y) < RECT_TOL &&
+      Math.abs(px[3].y - px[2].y) < RECT_TOL &&
+      Math.abs(px[0].x - px[3].x) < RECT_TOL &&
+      Math.abs(px[1].x - px[2].x) < RECT_TOL
+    );
+  }
+
+  /* ---------- 透视变换 ---------- */
+  function warp(base, quad) {
+    const W = base.width, H = base.height;
+    const m = metrics(base, quad);
+    const px = m.px;
+    const outW = m.outW, outH = m.outH;
+
+    const out = makeCanvas(outW, outH);
+    const octx = ctx2d(out);
+
+    /* 快路径：本来就是正矩形，直接裁切，省一次重采样 */
+    if (isAxisRect(px)) {
+      const x0 = Math.round(Math.min(px[0].x, px[3].x));
+      const y0 = Math.round(Math.min(px[0].y, px[1].y));
+      const x1 = Math.round(Math.max(px[1].x, px[2].x));
+      const y1 = Math.round(Math.max(px[2].y, px[3].y));
+      octx.fillStyle = "#fff";
+      octx.fillRect(0, 0, outW, outH);
+      octx.drawImage(base, x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0), 0, 0, outW, outH);
+      return out;
+    }
+
+    /* 反查表：目标矩形 → 源四边形 */
+    const h = homography(
+      [{ x: 0, y: 0 }, { x: outW, y: 0 }, { x: outW, y: outH }, { x: 0, y: outH }],
+      px
+    );
+    if (!h) {
+      octx.fillStyle = "#fff";
+      octx.fillRect(0, 0, outW, outH);
+      return out;
+    }
+
+    const srcData = ctx2d(base).getImageData(0, 0, W, H).data;
+    const outImg = octx.createImageData(outW, outH);
+    const od = outImg.data;
+
+    const a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], k = h[7];
+    const maxX = W - 1, maxY = H - 1;
+
+    for (let y = 0; y < outH; y++) {
+      const y0 = y + 0.5;
+      let oi = y * outW * 4;
+      for (let x = 0; x < outW; x++, oi += 4) {
+        const x0 = x + 0.5;
+        const den = g * x0 + k * y0 + 1;
+        let sx, sy;
+        if (den === 0) { sx = 0; sy = 0; }
+        else {
+          sx = (a * x0 + b * y0 + c) / den - 0.5;
+          sy = (d * x0 + e * y0 + f) / den - 0.5;
+        }
+
+        /* 双线性采样（边界钳制，避免黑边） */
+        if (sx < 0) sx = 0; else if (sx > maxX) sx = maxX;
+        if (sy < 0) sy = 0; else if (sy > maxY) sy = maxY;
+
+        const ix = sx | 0, iy = sy | 0;
+        const fx = sx - ix, fy = sy - iy;
+        const ix1 = ix + 1 > maxX ? maxX : ix + 1;
+        const iy1 = iy + 1 > maxY ? maxY : iy + 1;
+
+        const p00 = (iy * W + ix) * 4;
+        const p10 = (iy * W + ix1) * 4;
+        const p01 = (iy1 * W + ix) * 4;
+        const p11 = (iy1 * W + ix1) * 4;
+
+        const w00 = (1 - fx) * (1 - fy);
+        const w10 = fx * (1 - fy);
+        const w01 = (1 - fx) * fy;
+        const w11 = fx * fy;
+
+        od[oi] = srcData[p00] * w00 + srcData[p10] * w10 + srcData[p01] * w01 + srcData[p11] * w11;
+        od[oi + 1] = srcData[p00 + 1] * w00 + srcData[p10 + 1] * w10 + srcData[p01 + 1] * w01 + srcData[p11 + 1] * w11;
+        od[oi + 2] = srcData[p00 + 2] * w00 + srcData[p10 + 2] * w10 + srcData[p01 + 2] * w01 + srcData[p11 + 2] * w11;
+        od[oi + 3] = 255;
+      }
+    }
+
+    octx.putImageData(outImg, 0, 0);
+    return out;
+  }
+
+  DC.perspective = {
+    defaultQuad, cloneQuad, quadToPx, metrics, isConvex, isValidQuad,
+    moveCorner, moveEdge, moveQuad, homography, warp, MIN_EDGE_RATIO,
+  };
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/crop.js ===== */
+/* ===============================================================
+   crop.js —— 透视裁剪交互层
+
+   编辑态：主画布显示「未处理的旋转整图」，上面盖一层 overlay 画四角框；
+   右下角小窗实时显示「透视矫正 + 去底」后的结果，所见即所得。
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const { $, makeCanvas } = DC.utils;
+  const S = DC.state;
+
+  const HIT_CORNER = 16;
+  const HIT_EDGE = 11;
+  const INSET_W = 168;
+  const INSET_H = 212;
+
+  let el = null;         // overlay canvas
+  let g = null;          // 2d context
+  let view = { w: 0, h: 0, dpr: 1 };
+  let drag = null;
+  let quadBefore = null;
+  let insetRaf = 0;
+
+  /* ---------- 坐标换算 ---------- */
+  function quadPx() {
+    return S.quad.map((p) => ({ x: p.x * view.w, y: p.y * view.h }));
+  }
+
+  function polyPath(ctx, pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+  }
+
+  function pointInQuad(pt, pts) {
+    let inside = false;
+    for (let i = 0, j = 3; i < 4; j = i++) {
+      const xi = pts[i].x, yi = pts[i].y;
+      const xj = pts[j].x, yj = pts[j].y;
+      const intersect =
+        yi > pt.y !== yj > pt.y &&
+        pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function distToSegment(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    if (!len2) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+
+  /* ---------- 绘制 ---------- */
+  function draw() {
+    if (!g || !S.quad) return;
+    const pts = quadPx();
+
+    g.clearRect(0, 0, view.w, view.h);
+
+    /* 四边形外压暗 */
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, view.w, view.h);
+    g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < 4; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.closePath();
+    g.fillStyle = "rgba(17,24,39,.58)";
+    g.fill("evenodd");
+    g.restore();
+
+    /* 三分参考线 */
+    g.save();
+    g.strokeStyle = "rgba(255,255,255,.24)";
+    g.lineWidth = 1;
+    for (let k = 1; k <= 2; k++) {
+      const t = k / 3;
+      const p1 = lerpPt(pts[0], pts[1], t);
+      const p2 = lerpPt(pts[3], pts[2], t);
+      const p3 = lerpPt(pts[0], pts[3], t);
+      const p4 = lerpPt(pts[1], pts[2], t);
+      g.beginPath(); g.moveTo(p1.x, p1.y); g.lineTo(p2.x, p2.y); g.stroke();
+      g.beginPath(); g.moveTo(p3.x, p3.y); g.lineTo(p4.x, p4.y); g.stroke();
+    }
+    g.restore();
+
+    /* 边框：白色描边打底 + 蓝色主线，保证在深浅背景上都可见 */
+    g.save();
+    polyPath(g, pts);
+    g.lineJoin = "round";
+    g.strokeStyle = "rgba(255,255,255,.9)";
+    g.lineWidth = 4;
+    g.stroke();
+    g.strokeStyle = "#2f6df6";
+    g.lineWidth = 2;
+    g.stroke();
+    g.restore();
+
+    /* 边中点手柄 */
+    g.save();
+    for (let i = 0; i < 4; i++) {
+      const m = lerpPt(pts[i], pts[(i + 1) % 4], 0.5);
+      g.beginPath();
+      g.arc(m.x, m.y, 4.5, 0, Math.PI * 2);
+      g.fillStyle = "rgba(255,255,255,.95)";
+      g.fill();
+      g.strokeStyle = "#2f6df6";
+      g.lineWidth = 1.6;
+      g.stroke();
+    }
+    g.restore();
+
+    /* 四角手柄 */
+    g.save();
+    for (let i = 0; i < 4; i++) {
+      const p = pts[i];
+      g.beginPath();
+      g.arc(p.x, p.y, 8, 0, Math.PI * 2);
+      g.fillStyle = "#fff";
+      g.shadowColor = "rgba(17,24,39,.35)";
+      g.shadowBlur = 6;
+      g.shadowOffsetY = 1;
+      g.fill();
+      g.shadowColor = "transparent";
+      g.strokeStyle = "#2f6df6";
+      g.lineWidth = 2.5;
+      g.stroke();
+
+      g.beginPath();
+      g.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
+      g.fillStyle = "#2f6df6";
+      g.fill();
+    }
+    g.restore();
+  }
+
+  function lerpPt(a, b, t) {
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+
+  /* ---------- 布局：overlay 必须与 #preview 的显示矩形严格重合 ---------- */
+  function layout() {
+    const stage = $("stage").getBoundingClientRect();
+    const r = $("preview").getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return;
+
+    el.style.left = (r.left - stage.left) + "px";
+    el.style.top = (r.top - stage.top) + "px";
+    el.style.width = r.width + "px";
+    el.style.height = r.height + "px";
+
+    const dpr = window.devicePixelRatio || 1;
+    el.width = Math.max(1, Math.round(r.width * dpr));
+    el.height = Math.max(1, Math.round(r.height * dpr));
+
+    g = el.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    view.w = r.width;
+    view.h = r.height;
+    view.dpr = dpr;
+  }
+
+  /* ---------- 命中测试 ---------- */
+  function hitTest(pt) {
+    const pts = quadPx();
+
+    for (let i = 0; i < 4; i++) {
+      if (Math.hypot(pt.x - pts[i].x, pt.y - pts[i].y) <= HIT_CORNER) {
+        return { type: "corner", idx: i };
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i], b = pts[(i + 1) % 4];
+      if (distToSegment(pt, a, b) <= HIT_EDGE) {
+        return { type: "edge", idx: i };
+      }
+    }
+    if (pointInQuad(pt, pts)) return { type: "move", idx: -1 };
+    return null;
+  }
+
+  /* ---------- 指针事件 ---------- */
+  function localPoint(e) {
+    const r = el.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  function onDown(e) {
+    if (!S.cropMode) return;
+    const pt = localPoint(e);
+    const hit = hitTest(pt);
+    if (!hit) return;
+    e.preventDefault();
+    drag = {
+      type: hit.type,
+      idx: hit.idx,
+      start: pt,
+      startQuad: DC.perspective.cloneQuad(S.quad),
+    };
+    el.setPointerCapture && el.setPointerCapture(e.pointerId);
+  }
+
+  function onMove(e) {
+    if (!S.cropMode) return;
+    const pt = localPoint(e);
+
+    if (!drag) {
+      const hit = hitTest(pt);
+      el.style.cursor = !hit ? "default"
+        : hit.type === "corner" ? "nwse-resize"
+        : hit.type === "edge" ? "move"
+        : "grab";
+      return;
+    }
+
+    e.preventDefault();
+    const dx = (pt.x - drag.start.x) / view.w;
+    const dy = (pt.y - drag.start.y) / view.h;
+    const baseW = view.baseW || 1000;
+    const baseH = view.baseH || 1000;
+
+    let next = null;
+    if (drag.type === "corner") {
+      const o = drag.startQuad[drag.idx];
+      next = DC.perspective.moveCorner(
+        drag.startQuad, drag.idx, o.x + dx, o.y + dy, baseW, baseH
+      );
+    } else if (drag.type === "edge") {
+      next = DC.perspective.moveEdge(
+        drag.startQuad, drag.idx, dx, dy, baseW, baseH
+      );
+    } else {
+      next = DC.perspective.moveQuad(drag.startQuad, dx, dy);
+    }
+
+    /* 非法位置（越界 / 自交 / 边太短）直接丢弃，手柄停在最后一个合法位置 */
+    if (!next) return;
+
+    S.quad = next;
+    S.srcRev++;
+    draw();
+    scheduleInset();
+  }
+
+  function onUp(e) {
+    if (!drag) return;
+    drag = null;
+    el.releasePointerCapture && el.releasePointerCapture(e.pointerId);
+    DC.store.commit();
+    DC.app.updateStatus();
+  }
+
+  /* ---------- 实时小窗：矫正 + 去底后的效果 ---------- */
+  function scheduleInset() {
+    if (insetRaf) return;
+    insetRaf = requestAnimationFrame(() => {
+      insetRaf = 0;
+      renderInset();
+    });
+  }
+
+  function renderInset() {
+    if (!S.cropMode || !S.quad) return;
+    const canvas = $("cropPreview");
+
+    const base = DC.geometry.buildBase(420);
+    const warped = DC.perspective.warp(base, S.quad);
+    const out = DC.enhance.process(warped, S.srcRev + "-inset");
+
+    const s = Math.min(INSET_W / out.width, INSET_H / out.height);
+    const w = Math.max(1, Math.round(out.width * s));
+    const h = Math.max(1, Math.round(out.height * s));
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+
+    const cx = canvas.getContext("2d");
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx.imageSmoothingQuality = "high";
+    cx.fillStyle = "#fff";
+    cx.fillRect(0, 0, w, h);
+    cx.drawImage(out, 0, 0, w, h);
+  }
+
+  /* ---------- 进出编辑态 ---------- */
+  function enter() {
+    if (!S.img || S.cropMode) return;
+    quadBefore = S.quad ? DC.perspective.cloneQuad(S.quad) : null;
+    if (!S.quad) S.quad = DC.perspective.defaultQuad();
+
+    S.cropMode = true;
+    document.body.classList.add("cropping");
+    el.hidden = false;
+
+    const base = DC.geometry.buildBase(DC.app.PREVIEW_MAX);
+    view.baseW = base.width;
+    view.baseH = base.height;
+    DC.app.paintRaw(base);
+
+    layout();
+    draw();
+    scheduleInset();
+    DC.app.updateStatus();
+  }
+
+  function leave() {
+    S.cropMode = false;
+    drag = null;
+    document.body.classList.remove("cropping");
+    el.hidden = true;
+    if (g) g.clearRect(0, 0, el.width, el.height);
+  }
+
+  function apply() {
+    if (!S.cropMode) return;
+    leave();
+    S.srcRev++;
+    DC.store.commit();
+    DC.app.render();
+    DC.app.toast("已应用透视裁剪", "ok");
+  }
+
+  function cancel() {
+    if (!S.cropMode) return;
+    S.quad = quadBefore ? DC.perspective.cloneQuad(quadBefore) : null;
+    S.srcRev++;
+    leave();
+    DC.app.render();
+  }
+
+  function reset() {
+    if (!S.cropMode) return;
+    S.quad = DC.perspective.defaultQuad();
+    S.srcRev++;
+    draw();
+    scheduleInset();
+    DC.app.updateStatus();
+  }
+
+  function init() {
+    el = $("cropOverlay");
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+
+    $("cropApply").addEventListener("click", apply);
+    $("cropCancel").addEventListener("click", cancel);
+    $("cropReset").addEventListener("click", reset);
+
+    window.addEventListener("resize", () => {
+      if (!S.cropMode) return;
+      layout();
+      draw();
+    });
+  }
+
+  DC.crop = {
+    init, enter, apply, cancel, reset,
+    isActive: () => S.cropMode,
+    onResize() { if (S.cropMode) { layout(); draw(); } },
+  };
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/printer.js ===== */
+/* ===============================================================
+   printer.js —— 打印：页面设置、预览、实际输出
+
+   预览与实际打印共用同一套 mm 计算，保证「看到的就是打出来的」。
+   实际打印通过临时 #printRoot + 动态 @page 完成，
+   不依赖任何第三方库。
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const { $, clamp, makeCanvas, ctx2d, toast } = DC.utils;
+  const S = DC.state;
+
+  const PAPERS = {
+    A4: [210, 297],
+    A5: [148, 210],
+    B5: [176, 250],
+    Letter: [215.9, 279.4],
+  };
+  const PAPER_LABEL = {
+    A4: "A4", A5: "A5", B5: "B5", Letter: "Letter", custom: "自定义",
+  };
+
+  const PREVIEW_BOX = { w: 500, h: 596 };
+  const PRINT_MAX = 2400;   // 打印图的像素上限（A4 约 300dpi）
+
+  let printImg = null;      // 处理后的画布
+  let layout = null;        // 当前排版结果
+  let printRoot = null;
+  let pageStyle = null;
+
+  /* ---------- 生成打印用图像 ---------- */
+  function buildPrintImage() {
+    const base = DC.geometry.buildBase(PRINT_MAX);
+    const warped = S.quad ? DC.perspective.warp(base, S.quad) : base;
+    return DC.enhance.process(warped, S.srcRev + "-print");
+  }
+
+  /* ---------- 排版计算（单位 mm） ---------- */
+  function computeLayout() {
+    if (!printImg) return null;
+
+    let pw, ph;
+    if (S.print.paper === "custom") {
+      pw = clamp(Number(S.print.customW) || 210, 50, 1000);
+      ph = clamp(Number(S.print.customH) || 297, 50, 1000);
+    } else {
+      const p = PAPERS[S.print.paper] || PAPERS.A4;
+      pw = p[0]; ph = p[1];
+    }
+
+    const iw = printImg.width, ih = printImg.height;
+    const m = clamp(Number(S.print.margin) || 0, 0, 30);
+
+    let land;
+    if (S.print.orientation === "landscape") land = true;
+    else if (S.print.orientation === "portrait") land = false;
+    else {
+      // 自动：选能放得更大的方向
+      const a = Math.min((pw - 2 * m) / iw, (ph - 2 * m) / ih);
+      const b = Math.min((ph - 2 * m) / iw, (pw - 2 * m) / ih);
+      land = b > a;
+    }
+    if (land) { const t = pw; pw = ph; ph = t; }
+
+    const cw = Math.max(1, pw - 2 * m);
+    const ch = Math.max(1, ph - 2 * m);
+
+    const scale = S.print.fit === "cover"
+      ? Math.max(cw / iw, ch / ih)
+      : Math.min(cw / iw, ch / ih);
+
+    const iwMm = iw * scale;
+    const ihMm = ih * scale;
+    const x = (pw - iwMm) / 2;
+    const y = (ph - ihMm) / 2;
+
+    return {
+      pw, ph, margin: m, cw, ch,
+      iwMm, ihMm, x, y, scale,
+      landscape: land,
+      paperName: S.print.paper,
+    };
+  }
+
+  /* ---------- 预览绘制 ---------- */
+  function drawPreview() {
+    layout = computeLayout();
+    const canvas = $("printPreview");
+    if (!layout) return;
+
+    const pxPerMm = Math.min(
+      PREVIEW_BOX.w / layout.pw,
+      PREVIEW_BOX.h / layout.ph
+    );
+    const w = Math.round(layout.pw * pxPerMm);
+    const h = Math.round(layout.ph * pxPerMm);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+
+    const cx = canvas.getContext("2d");
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx.clearRect(0, 0, w, h);
+
+    // 纸张
+    cx.fillStyle = "#fff";
+    cx.fillRect(0, 0, w, h);
+
+    // 页边距参考线
+    if (layout.margin > 0) {
+      const mx = layout.margin * pxPerMm;
+      cx.save();
+      cx.strokeStyle = "rgba(47,109,246,.34)";
+      cx.lineWidth = 1;
+      cx.setLineDash([4, 4]);
+      cx.strokeRect(mx + .5, mx + .5, w - mx * 2 - 1, h - mx * 2 - 1);
+      cx.restore();
+    }
+
+    // 图片
+    const ix = layout.x * pxPerMm;
+    const iy = layout.y * pxPerMm;
+    const iw = layout.iwMm * pxPerMm;
+    const ih = layout.ihMm * pxPerMm;
+
+    cx.save();
+    if (S.print.fit === "cover") {
+      // 铺满：超出内容区部分裁掉
+      const mx = layout.margin * pxPerMm;
+      cx.beginPath();
+      cx.rect(mx, mx, w - mx * 2, h - mx * 2);
+      cx.clip();
+    }
+    cx.imageSmoothingQuality = "high";
+    cx.drawImage(printImg, ix, iy, iw, ih);
+    cx.restore();
+
+    // 纸张外框
+    cx.strokeStyle = "rgba(18,25,35,.16)";
+    cx.lineWidth = 1;
+    cx.strokeRect(.5, .5, w - 1, h - 1);
+
+    // 信息
+    const pct = Math.round(layout.scale * 100);
+    $("printInfo").textContent =
+      `${PAPER_LABEL[layout.paperName] || layout.paperName} ` +
+      `${layout.pw.toFixed(layout.paperName === "Letter" || layout.paperName === "custom" ? 1 : 0)}` +
+      ` × ${layout.ph.toFixed(layout.paperName === "Letter" || layout.paperName === "custom" ? 1 : 0)} mm · ` +
+      `${layout.landscape ? "横向" : "纵向"} · 边距 ${layout.margin} mm · 缩放 ${pct}%`;
+  }
+
+  /* ---------- 打开 / 关闭 ---------- */
+  function open() {
+    if (!S.img) return;
+    DC.app.setBusy(true, "正在生成打印预览…");
+
+    setTimeout(() => {
+      try {
+        printImg = buildPrintImage();
+        syncControls();
+        $("printModal").hidden = false;
+        drawPreview();
+      } catch (e) {
+        toast("生成打印预览失败：" + e.message, "err");
+      } finally {
+        DC.app.setBusy(false);
+      }
+    }, 20);
+  }
+
+  function close() {
+    $("printModal").hidden = true;
+    printImg = null;
+  }
+
+  function syncControls() {
+    $("paperSel").value = S.print.paper;
+    $("customPaperRow").hidden = S.print.paper !== "custom";
+    $("paperW").value = S.print.customW;
+    $("paperH").value = S.print.customH;
+    $("margin").value = S.print.margin;
+    $("vMargin").textContent = S.print.margin + " mm";
+
+    setSeg("orientSeg", "orient", S.print.orientation);
+    setSeg("fitSeg", "fit", S.print.fit);
+  }
+
+  function setSeg(id, key, value) {
+    DC.utils.$$("#" + id + " button").forEach((b) => {
+      b.classList.toggle("on", b.dataset[key] === value);
+    });
+  }
+
+  /* ---------- 真正打印 ---------- */
+  function doPrint() {
+    if (!layout || !printImg) return;
+
+    const url = printImg.toDataURL("image/png");
+    const { pw, ph, margin, iwMm, ihMm, x, y } = layout;
+
+    // 1) 页面尺寸
+    if (pageStyle) pageStyle.remove();
+    pageStyle = document.createElement("style");
+    pageStyle.id = "print-page-rule";
+    pageStyle.textContent = `@page { size: ${pw}mm ${ph}mm; margin: 0; }`;
+    document.head.appendChild(pageStyle);
+
+    // 2) 打印内容
+    if (printRoot) printRoot.remove();
+    printRoot = document.createElement("div");
+    printRoot.id = "printRoot";
+
+    const imgStyle =
+      `position:absolute;left:${x}mm;top:${y}mm;width:${iwMm}mm;height:${ihMm}mm;`;
+
+    if (S.print.fit === "cover") {
+      // 图片被放进裁剪容器，坐标要减去容器原点（页边距），否则会偏移一个边距
+      const innerStyle =
+        `position:absolute;left:${x - margin}mm;top:${y - margin}mm;` +
+        `width:${iwMm}mm;height:${ihMm}mm;`;
+      printRoot.innerHTML =
+        `<div style="position:absolute;left:${margin}mm;top:${margin}mm;` +
+        `width:${layout.cw}mm;height:${layout.ch}mm;overflow:hidden;">` +
+        `<img src="${url}" style="${innerStyle}"></div>`;
+    } else {
+      printRoot.innerHTML = `<img src="${url}" style="${imgStyle}">`;
+    }
+    document.body.appendChild(printRoot);
+
+    // 3) 等图像解码后再调起打印
+    const img = printRoot.querySelector("img");
+    const fire = () => {
+      const cleanup = () => {
+        if (printRoot) { printRoot.remove(); printRoot = null; }
+        if (pageStyle) { pageStyle.remove(); pageStyle = null; }
+      };
+      window.addEventListener("afterprint", cleanup, { once: true });
+      try { window.print(); } catch (e) { toast("打印失败：" + e.message, "err"); }
+      setTimeout(cleanup, 600);
+    };
+
+    if (img && !img.complete) img.onload = fire;
+    else fire();
+  }
+
+  /* ---------- 事件 ---------- */
+  function init() {
+    $("btnPrint").addEventListener("click", open);
+    $("btnPrintPanel").addEventListener("click", open);
+    $("printClose").addEventListener("click", close);
+    $("printCancel").addEventListener("click", close);
+    $("printGo").addEventListener("click", doPrint);
+
+    $("printModal").addEventListener("click", (e) => {
+      if (e.target === $("printModal")) close();
+    });
+
+    $("paperSel").addEventListener("change", (e) => {
+      S.print.paper = e.target.value;
+      $("customPaperRow").hidden = S.print.paper !== "custom";
+      DC.store.persist();
+      drawPreview();
+    });
+
+    ["paperW", "paperH"].forEach((id) => {
+      $(id).addEventListener("input", (e) => {
+        const v = clamp(Number(e.target.value) || 0, 50, 1000);
+        if (id === "paperW") S.print.customW = v;
+        else S.print.customH = v;
+        DC.store.persist();
+        drawPreview();
+      });
+    });
+
+    $("orientSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-orient]");
+      if (!b) return;
+      S.print.orientation = b.dataset.orient;
+      setSeg("orientSeg", "orient", S.print.orientation);
+      DC.store.persist();
+      drawPreview();
+    });
+
+    $("margin").addEventListener("input", (e) => {
+      S.print.margin = Number(e.target.value);
+      $("vMargin").textContent = S.print.margin + " mm";
+      DC.store.persist();
+      drawPreview();
+    });
+
+    $("fitSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-fit]");
+      if (!b) return;
+      S.print.fit = b.dataset.fit;
+      setSeg("fitSeg", "fit", S.print.fit);
+      DC.store.persist();
+      drawPreview();
+    });
+
+    window.addEventListener("resize", () => {
+      if (!$("printModal").hidden) drawPreview();
+    });
+  }
+
+  DC.printer = {
+    init, open, close, doPrint,
+    isOpen: () => !$("printModal").hidden,
+  };
+})(window.DC);
+</script>
+<script>
+/* ===== src/js/app.js ===== */
+/* ===============================================================
+   app.js —— 装配层：渲染管线、文件载入、控件绑定、快捷键
+   =============================================================== */
+(function (DC) {
+  "use strict";
+
+  const { $, $$, clamp, makeCanvas, ctx2d, toast, fmtMs, safeName, download } = DC.utils;
+  const S = DC.state;
+
+  const PREVIEW_MAX = 1200;
+  const FORMATS = {
+    png: { mime: "image/png", ext: "png" },
+    jpeg: { mime: "image/jpeg", ext: "jpg" },
+    webp: { mime: "image/webp", ext: "webp" },
+  };
+
+  /* ================= 渲染管线 ================= */
+
+  function paint(canvas) {
+    const pv = $("preview");
+    pv.width = canvas.width;
+    pv.height = canvas.height;
+    const cx = ctx2d(pv);
+    cx.clearRect(0, 0, pv.width, pv.height);
+    cx.drawImage(canvas, 0, 0);
+    pv.hidden = false;
+    $("empty").hidden = true;
+  }
+
+  /** 裁剪编辑态：主画布直接显示未处理的旋转整图 */
+  function paintRaw(base) {
+    paint(base);
+  }
+
+  function render() {
+    if (!S.img || S.cropMode) return;
+    const t0 = performance.now();
+
+    const base = DC.geometry.buildBase(PREVIEW_MAX);
+    const warped = S.quad ? DC.perspective.warp(base, S.quad) : base;
+    const out = DC.enhance.process(warped, S.srcRev);
+
+    paint(out);
+
+    S.outW = out.width;
+    S.outH = out.height;
+    S.lastRenderMs = performance.now() - t0;
+
+    updateOutSize();
+    updateStatus();
+  }
+
+  let renderRaf = 0;
+  function scheduleRender() {
+    if (renderRaf) return;
+    renderRaf = requestAnimationFrame(() => {
+      renderRaf = 0;
+      render();
+    });
+  }
+
+  /** 导出尺寸（全分辨率下计算，与预览无关） */
+  function exportSize() {
+    const b = DC.geometry.baseSize();
+    if (!S.quad) return { w: Math.round(b.w), h: Math.round(b.h) };
+    const m = DC.perspective.metrics({ width: b.w, height: b.h }, S.quad);
+    return { w: m.outW, h: m.outH };
+  }
+
+  function updateOutSize() {
+    const s = exportSize();
+    $("outSize").textContent = s.w + " × " + s.h + " px";
+  }
+
+  /* ================= 状态栏 / 忙碌 / 提示 ================= */
+
+  function updateStatus() {
+    const bar = $("statusbar");
+    if (!S.img) { bar.classList.remove("show"); return; }
+    bar.classList.add("show");
+    $("stName").textContent = S.name;
+    $("stSize").textContent = S.outW + " × " + S.outH + " px";
+    $("stTime").textContent = S.cropMode ? "裁剪中" : fmtMs(S.lastRenderMs);
+    $("stMode").textContent = S.params.mode === "gray" ? "黑白文档" : "保留彩色";
+  }
+
+  function setBusy(on, text) {
+    S.busy = on;
+    $("busy").classList.toggle("show", on);
+    if (text) $("busyText").textContent = text;
+  }
+
+  /* ================= 文件载入 ================= */
+
+  function applySource(canvas, name, meta) {
+    S.img = canvas;
+    S.srcW = canvas.width;
+    S.srcH = canvas.height;
+    S.name = name || "image";
+    S.meta = meta || "";
+    S.paperFill = null;
+    S.rotation = 0;
+    S.angle = 0;
+    S.quad = null;
+    S.srcRev++;
+    S.bgCache.clear();
+
+    syncControls();
+    render();
+    DC.store.resetHistory();
+  }
+
+  async function loadFile(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      toast("请选择图片文件", "err");
+      return;
+    }
+    setBusy(true, "正在读取图片…");
+    try {
+      let bmp;
+      try {
+        bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+      } catch (e) {
+        bmp = await createImageBitmap(file);
+      }
+      const c = makeCanvas(bmp.width, bmp.height);
+      c.getContext("2d").drawImage(bmp, 0, 0);
+      if (bmp.close) bmp.close();
+
+      applySource(c, file.name.replace(/\.[^.]+$/, "") || "image",
+        DC.utils.fmtBytes(file.size));
+      toast("已载入 " + file.name, "ok");
+    } catch (err) {
+      toast("读取失败：" + err.message, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ================= 导出 ================= */
+
+  function exportImage() {
+    if (!S.img) return;
+    const fmt = FORMATS[S.params.format] ? S.params.format : "png";
+    setBusy(true, "正在导出原图…");
+
+    setTimeout(() => {
+      try {
+        const base = DC.geometry.buildBase(null);
+        const warped = S.quad ? DC.perspective.warp(base, S.quad) : base;
+        const out = DC.enhance.process(warped, S.srcRev + "-export");
+
+        const mime = FORMATS[fmt].mime;
+        const quality = fmt === "png" ? undefined : S.params.quality / 100;
+
+        out.toBlob((blob) => {
+          if (!blob) {
+            // 个别浏览器不支持 webp 编码时回退
+            out.toBlob((b2) => {
+              setBusy(false);
+              if (!b2) { toast("导出失败：浏览器不支持该格式", "err"); return; }
+              download(b2, safeName(S.name) + "_去底.png");
+              toast("已导出 PNG", "ok");
+            }, "image/png");
+            return;
+          }
+          setBusy(false);
+          download(blob, safeName(S.name) + "_去底." + FORMATS[fmt].ext);
+          toast("已导出 " + S.params.format.toUpperCase() + " · " + DC.utils.fmtBytes(blob.size), "ok");
+        }, mime, quality);
+      } catch (e) {
+        setBusy(false);
+        toast("导出失败：" + e.message, "err");
+      }
+    }, 30);
+  }
+
+  /* ================= 控件同步 ================= */
+
+  function syncControls() {
+    const P = S.params;
+
+    setSlider("strength", P.strength);
+    setSlider("radius", P.radius);
+    setSlider("black", P.black);
+    setSlider("white", P.white);
+    setSlider("sharpen", P.sharpen);
+    setSlider("angle", S.angle, S.angle.toFixed(1) + "°");
+
+    $$("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === P.mode));
+    $$("#fmtSeg button").forEach((b) => b.classList.toggle("on", b.dataset.fmt === P.format));
+
+    $("invert").classList.toggle("on", !!P.invert);
+    $("invert").setAttribute("aria-checked", String(!!P.invert));
+
+    $("qualityRow").hidden = P.format === "png";
+    $("quality").value = P.quality;
+    $("vQuality").textContent = P.quality;
+
+    $("btnClearCrop").disabled = !S.quad;
+    $("btnSave").disabled = !S.img;
+    $("btnPrint").disabled = !S.img;
+
+    // 裁剪按钮文案随状态变化
+    $("btnCrop").textContent = S.cropMode ? "退出裁剪" : (S.quad ? "调整裁剪" : "透视裁剪");
+  }
+
+  function setSlider(id, value, label) {
+    const el = $(id);
+    if (!el) return;
+    el.value = value;
+    const out = $("v" + id.charAt(0).toUpperCase() + id.slice(1));
+    if (out) out.textContent = label != null ? label : value;
+  }
+
+  function updateHistoryButtons() {
+    $("btnUndo").disabled = !DC.store.canUndo();
+    $("btnRedo").disabled = !DC.store.canRedo();
+  }
+
+  /* ================= 参数变更入口 ================= */
+
+  /** 几何变化（旋转/角度）会让裁剪框失效，一并清掉 */
+  function invalidateCrop() {
+    if (S.quad) {
+      S.quad = null;
+      toast("几何变化已重置裁剪框");
+    }
+  }
+
+  function afterParamChange(commit) {
+    S.srcRev++;
+    scheduleRender();
+    if (commit) DC.store.commit();
+  }
+
+  /* ================= 示例图 ================= */
+
+  /* 3×3 矩阵求逆（行主序 9 元素） */
+  function invert3(m) {
+    const [a, b, c, d, e, f, g, h, i] = m;
+    const A = e * i - f * h;
+    const B = -(d * i - f * g);
+    const C = d * h - e * g;
+    const det = a * A + b * B + c * C;
+    if (Math.abs(det) < 1e-12) return null;
+    const id = 1 / det;
+    return [
+      A * id, -(b * i - c * h) * id, (b * f - c * e) * id,
+      B * id, (a * i - c * g) * id, -(a * f - c * d) * id,
+      C * id, -(a * h - b * g) * id, (a * e - b * d) * id,
+    ];
+  }
+
+  /**
+   * 把 src 画布按透视贴到 dst 上（逐像素反查 + 双线性 + 边缘羽化）。
+   * 用两个三角形做仿射近似会在对角线上留下接缝，所以这里老老实实算单应反变换。
+   */
+  function rasterQuad(dstCtx, src, quad, dstW, dstH) {
+    const sw = src.width, sh = src.height;
+
+    const srcQuad = [
+      { x: 0, y: 0 }, { x: sw, y: 0 }, { x: sw, y: sh }, { x: 0, y: sh },
+    ];
+    const h = DC.perspective.homography(srcQuad, quad);
+    if (!h) return;
+    const inv = invert3([h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1]);
+    if (!inv) return;
+
+    const sd = ctx2d(src).getImageData(0, 0, sw, sh).data;
+    const dstImg = dstCtx.getImageData(0, 0, dstW, dstH);
+    const dd = dstImg.data;
+
+    // 只遍历四边形包围盒
+    let minX = dstW, minY = dstH, maxX = 0, maxY = 0;
+    for (const p of quad) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    minX = Math.max(0, Math.floor(minX)); maxX = Math.min(dstW - 1, Math.ceil(maxX));
+    minY = Math.max(0, Math.floor(minY)); maxY = Math.min(dstH - 1, Math.ceil(maxY));
+
+    const FEATHER = 1.2;
+    const maxSU = sw - 1, maxSV = sh - 1;
+
+    for (let y = minY; y <= maxY; y++) {
+      const py = y + 0.5;
+      let oi = (y * dstW + minX) * 4;
+      for (let x = minX; x <= maxX; x++, oi += 4) {
+        const px = x + 0.5;
+
+        const wgt = inv[6] * px + inv[7] * py + inv[8];
+        if (Math.abs(wgt) < 1e-9) continue;
+        const u = (inv[0] * px + inv[1] * py + inv[2]) / wgt - 0.5;
+        const v = (inv[3] * px + inv[4] * py + inv[5]) / wgt - 0.5;
+
+        if (u < -FEATHER || v < -FEATHER || u > maxSU + FEATHER || v > maxSV + FEATHER) continue;
+
+        // 边缘羽化，避免锯齿硬边
+        let a = 1;
+        if (u < FEATHER) a = Math.min(a, Math.max(0, (u + FEATHER) / (2 * FEATHER)));
+        if (u > maxSU - FEATHER) a = Math.min(a, Math.max(0, (maxSU + FEATHER - u) / (2 * FEATHER)));
+        if (v < FEATHER) a = Math.min(a, Math.max(0, (v + FEATHER) / (2 * FEATHER)));
+        if (v > maxSV - FEATHER) a = Math.min(a, Math.max(0, (maxSV + FEATHER - v) / (2 * FEATHER)));
+        if (a <= 0) continue;
+
+        const cu = u < 0 ? 0 : u > maxSU ? maxSU : u;
+        const cv = v < 0 ? 0 : v > maxSV ? maxSV : v;
+        const iu = cu | 0, iv = cv | 0;
+        const fu = cu - iu, fv = cv - iv;
+        const iu1 = iu + 1 > maxSU ? maxSU : iu + 1;
+        const iv1 = iv + 1 > maxSV ? maxSV : iv + 1;
+
+        const p00 = (iv * sw + iu) * 4;
+        const p10 = (iv * sw + iu1) * 4;
+        const p01 = (iv1 * sw + iu) * 4;
+        const p11 = (iv1 * sw + iu1) * 4;
+
+        const w00 = (1 - fu) * (1 - fv), w10 = fu * (1 - fv);
+        const w01 = (1 - fu) * fv, w11 = fu * fv;
+
+        for (let ch = 0; ch < 3; ch++) {
+          const val =
+            sd[p00 + ch] * w00 + sd[p10 + ch] * w10 +
+            sd[p01 + ch] * w01 + sd[p11 + ch] * w11;
+          dd[oi + ch] = a * val + (1 - a) * dd[oi + ch];
+        }
+      }
+    }
+
+    dstCtx.putImageData(dstImg, 0, 0);
+  }
+
+  function makeSample() {
+    /* 1) 先画一张“纸上文字” */
+    const dw = 900, dh = 1240;
+    const paper = makeCanvas(dw, dh);
+    const px = ctx2d(paper);
+
+    const grd = px.createLinearGradient(0, 0, dw, dh);
+    grd.addColorStop(0, "#efeade");
+    grd.addColorStop(0.5, "#e3dccb");
+    grd.addColorStop(1, "#f1ecdf");
+    px.fillStyle = grd;
+    px.fillRect(0, 0, dw, dh);
+
+    const nd = px.getImageData(0, 0, dw, dh);
+    for (let i = 0; i < nd.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 14;
+      nd.data[i] += n; nd.data[i + 1] += n; nd.data[i + 2] += n;
+    }
+    px.putImageData(nd, 0, 0);
+
+    px.fillStyle = "#2b2723";
+    px.textAlign = "center";
+    px.font = "600 42px 'PingFang SC','Microsoft YaHei',serif";
+    px.fillText("关于图片去底与漂白的说明", dw / 2, 132);
+
+    px.textAlign = "left";
+    px.font = "21px 'PingFang SC','Microsoft YaHei',serif";
+    const lines = [
+      "很多扫描件或翻拍件看起来发灰、发黄，",
+      "原因是纸底不是纯白，且光照不均匀。",
+      "去底的思路是：先估计每一处纸底的亮度，",
+      "再用像素值除以这个估计值并拉伸到 255。",
+      "这样纸底被拉成纯白，而墨迹几乎不变，",
+      "文字边缘的过渡也会被保留下来。",
+      "斜着拍的照片，还需要做透视裁剪，",
+      "把四条纸边拉直成矩形。"
+    ];
+    let yy = 240;
+    for (const ln of lines) {
+      px.fillStyle = "#332e28";
+      px.fillText(ln, 100, yy);
+      yy += 58;
+    }
+    px.fillStyle = "#c9bfa8";
+    px.fillRect(100, yy + 16, 700, 2);
+    px.fillStyle = "#3a342d";
+    px.font = "18px 'PingFang SC','Microsoft YaHei',serif";
+    px.fillText("示例图：模拟一张斜拍的文档照片，可直接试用透视裁剪。", 100, yy + 62);
+
+    /* 2) 放到“桌面”上，带一点透视 */
+    const W = 1200, H = 1600;
+    const c = makeCanvas(W, H);
+    const cx = ctx2d(c);
+
+    const desk = cx.createLinearGradient(0, 0, W, H);
+    desk.addColorStop(0, "#6b6a66");
+    desk.addColorStop(0.45, "#565553");
+    desk.addColorStop(1, "#3f3f3e");
+    cx.fillStyle = desk;
+    cx.fillRect(0, 0, W, H);
+
+    // 桌面纹理
+    cx.save();
+    cx.globalAlpha = 0.06;
+    cx.strokeStyle = "#fff";
+    cx.lineWidth = 1;
+    for (let i = 0; i < 900; i++) {
+      const y = Math.random() * H;
+      cx.beginPath();
+      cx.moveTo(0, y);
+      cx.lineTo(W, y + (Math.random() - 0.5) * 26);
+      cx.stroke();
+    }
+    cx.restore();
+
+    const quad = [
+      { x: 236, y: 214 },   // TL
+      { x: 1002, y: 292 },  // TR
+      { x: 1064, y: 1418 }, // BR
+      { x: 150, y: 1322 },  // BL
+    ];
+
+    // 阴影
+    cx.save();
+    cx.beginPath();
+    cx.moveTo(quad[0].x, quad[0].y);
+    for (let i = 1; i < 4; i++) cx.lineTo(quad[i].x, quad[i].y);
+    cx.closePath();
+    cx.shadowColor = "rgba(0,0,0,.55)";
+    cx.shadowBlur = 42;
+    cx.shadowOffsetY = 16;
+    cx.fillStyle = "#222";
+    cx.fill();
+    cx.restore();
+
+    rasterQuad(cx, paper, quad, W, H);
+
+    // 一点光照不均
+    const light = cx.createRadialGradient(W * 0.3, H * 0.2, 80, W * 0.5, H * 0.5, W * 1.1);
+    light.addColorStop(0, "rgba(255,250,235,.22)");
+    light.addColorStop(1, "rgba(0,0,0,.24)");
+    cx.fillStyle = light;
+    cx.fillRect(0, 0, W, H);
+
+    applySource(c, "示例文档照片", "示例 · 1200×1600");
+    toast("这是斜拍的文档照片，试试右下角的「透视裁剪」", "ok", 3200);
+  }
+
+  /* ================= 事件绑定 ================= */
+
+  function bindSlider(id, apply) {
+    const el = $(id);
+    el.addEventListener("input", () => {
+      apply(parseFloat(el.value));
+    });
+  }
+
+  function initControls() {
+    /* --- 去底 / 漂白参数 --- */
+    bindSlider("strength", (v) => {
+      S.params.strength = v;
+      $("vStrength").textContent = v;
+      afterParamChange(false);
+    });
+    bindSlider("radius", (v) => {
+      S.params.radius = v;
+      $("vRadius").textContent = v;
+      afterParamChange(false);
+    });
+    bindSlider("black", (v) => {
+      S.params.black = v;
+      $("vBlack").textContent = v;
+      afterParamChange(false);
+    });
+    bindSlider("white", (v) => {
+      S.params.white = v;
+      $("vWhite").textContent = v;
+      afterParamChange(false);
+    });
+    bindSlider("sharpen", (v) => {
+      S.params.sharpen = v;
+      $("vSharpen").textContent = v;
+      afterParamChange(false);
+    });
+    bindSlider("quality", (v) => {
+      S.params.quality = v;
+      $("vQuality").textContent = v;
+      DC.store.persist();
+    });
+
+    ["strength", "radius", "black", "white", "sharpen"].forEach((id) => {
+      $(id).addEventListener("change", () => DC.store.commit());
+    });
+
+    /* --- 模式 --- */
+    $("modeSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-mode]");
+      if (!b || b.classList.contains("on")) return;
+      S.params.mode = b.dataset.mode;
+      $$("#modeSeg button").forEach((x) => x.classList.toggle("on", x === b));
+      afterParamChange(true);
+      updateStatus();
+    });
+
+    /* --- 格式 --- */
+    $("fmtSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-fmt]");
+      if (!b || b.classList.contains("on")) return;
+      S.params.format = b.dataset.fmt;
+      $$("#fmtSeg button").forEach((x) => x.classList.toggle("on", x === b));
+      $("qualityRow").hidden = S.params.format === "png";
+      DC.store.persist();
+    });
+
+    /* --- 反相 --- */
+    $("invert").addEventListener("click", () => {
+      S.params.invert = !S.params.invert;
+      $("invert").classList.toggle("on", S.params.invert);
+      $("invert").setAttribute("aria-checked", String(S.params.invert));
+      afterParamChange(true);
+    });
+
+    /* --- 角度 / 旋转 --- */
+    $("angle").addEventListener("input", (e) => {
+      S.angle = parseFloat(e.target.value);
+      $("vAngle").textContent = S.angle.toFixed(1) + "°";
+      invalidateCrop();
+      afterParamChange(false);
+      syncControls();
+    });
+    $("angle").addEventListener("change", () => DC.store.commit());
+
+    $("btnRotL").addEventListener("click", () => rotate(-90));
+    $("btnRotR").addEventListener("click", () => rotate(90));
+
+    function rotate(delta) {
+      if (!S.img) return;
+      if (S.cropMode) DC.crop.cancel();
+      S.rotation = (S.rotation + delta + 360) % 360;
+      invalidateCrop();
+      S.srcRev++;
+      render();
+      DC.store.commit();
+    }
+
+    /* --- 自动纠正倾斜 --- */
+    $("btnDeskew").addEventListener("click", () => {
+      if (!S.img) return;
+      setBusy(true, "正在分析倾斜角度…");
+      setTimeout(() => {
+        try {
+          const r = DC.geometry.autoDeskew();
+          if (!r || r.angle == null) {
+            toast("图像中可识别的深色内容太少，请手动微调角度", "err");
+            return;
+          }
+          if (S.cropMode) DC.crop.cancel();
+          S.angle = r.angle;
+          $("angle").value = S.angle.toFixed(1);
+          $("vAngle").textContent = S.angle.toFixed(1) + "°";
+          invalidateCrop();
+          S.srcRev++;
+          render();
+          DC.store.commit();
+          toast("已纠正 " + S.angle.toFixed(1) + "°", "ok");
+        } catch (e) {
+          toast("自动纠正失败：" + e.message, "err");
+        } finally {
+          setBusy(false);
+        }
+      }, 20);
+    });
+
+    /* --- 裁剪 --- */
+    $("btnCrop").addEventListener("click", () => {
+      if (!S.img) return;
+      if (S.cropMode) DC.crop.apply();
+      else DC.crop.enter();
+      syncControls();
+    });
+
+    $("btnClearCrop").addEventListener("click", () => {
+      if (!S.quad) return;
+      S.quad = null;
+      S.srcRev++;
+      render();
+      syncControls();
+      DC.store.commit();
+      toast("已取消裁剪");
+    });
+
+    /* --- 重置 --- */
+    $("btnReset").addEventListener("click", () => {
+      if (!S.img) return;
+      if (S.cropMode) DC.crop.cancel();
+      S.params = Object.assign({}, DC.DEFAULT_PARAMS, {
+        format: S.params.format,
+        quality: S.params.quality,
+      });
+      S.rotation = 0;
+      S.angle = 0;
+      S.quad = null;
+      S.srcRev++;
+      syncControls();
+      render();
+      updateStatus();
+      DC.store.commit();
+      toast("已重置参数");
+    });
+
+    /* --- 撤销 / 重做 --- */
+    $("btnUndo").addEventListener("click", () => {
+      if (S.cropMode) DC.crop.cancel();
+      if (!DC.store.undo()) return;
+      S.srcRev++;
+      syncControls();
+      render();
+      updateStatus();
+    });
+    $("btnRedo").addEventListener("click", () => {
+      if (S.cropMode) DC.crop.cancel();
+      if (!DC.store.redo()) return;
+      S.srcRev++;
+      syncControls();
+      render();
+      updateStatus();
+    });
+
+    DC.store.onChange(updateHistoryButtons);
+
+    /* --- 保存 / 打印 --- */
+    $("btnSave").addEventListener("click", exportImage);
+    $("btnSavePanel").addEventListener("click", exportImage);
+
+    /* --- 打开文件 --- */
+    const openPicker = () => $("file").click();
+    $("btnOpen").addEventListener("click", openPicker);
+    $("btnPick").addEventListener("click", openPicker);
+    $("btnSample").addEventListener("click", makeSample);
+
+    $("file").addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) loadFile(f);
+      e.target.value = "";
+    });
+
+    /* --- 拖拽 / 粘贴 --- */
+    const stage = $("stage");
+    let dragDepth = 0;
+
+    stage.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      dragDepth++;
+      stage.classList.add("dragover");
+    });
+    stage.addEventListener("dragover", (e) => e.preventDefault());
+    stage.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) stage.classList.remove("dragover");
+    });
+    stage.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dragDepth = 0;
+      stage.classList.remove("dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) loadFile(f);
+    });
+
+    window.addEventListener("paste", (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const it of items) {
+        if (it.type && it.type.indexOf("image") === 0) {
+          loadFile(it.getAsFile());
+          break;
+        }
+      }
+    });
+
+    /* --- 快捷键 --- */
+    window.addEventListener("keydown", (e) => {
+      const tag = (e.target && e.target.tagName) || "";
+      const typing = /INPUT|SELECT|TEXTAREA/.test(tag);
+
+      if (e.key === "Escape") {
+        if (DC.printer.isOpen()) { DC.printer.close(); e.preventDefault(); return; }
+        if (S.cropMode) { DC.crop.cancel(); syncControls(); e.preventDefault(); }
+        return;
+      }
+
+      if (e.key === "Enter" && S.cropMode) {
+        DC.crop.apply();
+        syncControls();
+        e.preventDefault();
+        return;
+      }
+
+      if (typing) return;
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) $("btnRedo").click(); else $("btnUndo").click();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        $("btnRedo").click();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        openPicker();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        exportImage();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        DC.printer.open();
+        return;
+      }
+      if (S.cropMode && (e.key === "r" || e.key === "R")) {
+        DC.crop.reset();
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      DC.crop.onResize();
+    });
+  }
+
+  /* ================= 启动 ================= */
+
+  function boot() {
+    DC.store.loadParams();
+    syncControls();
+    DC.crop.init();
+    DC.printer.init();
+    initControls();
+    updateHistoryButtons();
+    DC.store.resetHistory();
+    updateStatus();
+
+    // 没有图片时禁用会误触的控件
+    $("btnSave").disabled = true;
+    $("btnPrint").disabled = true;
+
+    document.body.classList.remove("loading");
+  }
+
+  DC.app = {
+    PREVIEW_MAX, render, scheduleRender, paintRaw, paint,
+    setBusy, updateStatus, toast, syncControls, updateOutSize,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})(window.DC);
+</script>
+</body>
+</html>

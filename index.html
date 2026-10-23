@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="图片去底漂白 · 把灰黄纸底洗成纯白，支持透视裁剪、倾斜纠正与打印。纯前端本地处理，图片不上传。">
+<title>图片去底漂白 · 文档净化工作台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232f6df6'/><text x='16' y='23' font-size='18' text-anchor='middle' fill='white'>漂</text></svg>">
+<link rel="stylesheet" href="src/css/tokens.css">
+<link rel="stylesheet" href="src/css/base.css">
+<link rel="stylesheet" href="src/css/layout.css">
+<link rel="stylesheet" href="src/css/components.css">
+<link rel="stylesheet" href="src/css/print.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">漂</span>
+    <span class="brand-text">
+      <strong>图片去底漂白</strong>
+      <small>本地处理 · 图片不上传</small>
+    </span>
+  </div>
+
+  <div class="topbar-actions">
+    <button id="btnUndo" class="btn btn-icon" title="撤销 (Ctrl+Z)" disabled>↶</button>
+    <button id="btnRedo" class="btn btn-icon" title="重做 (Ctrl+Shift+Z)" disabled>↷</button>
+    <span class="divider"></span>
+    <button id="btnOpen" class="btn" title="打开图片 (Ctrl+O)">打开图片</button>
+    <button id="btnPrint" class="btn" disabled title="打印 (Ctrl+P)">打印</button>
+    <button id="btnSave" class="btn btn-primary" disabled title="保存图片 (Ctrl+S)">保存图片</button>
+    <input type="file" id="file" accept="image/*" hidden>
+  </div>
+</header>
+
+<main class="workspace">
+
+  <section class="stage" id="stage">
+    <div class="canvas-shell" id="canvasShell">
+      <canvas id="preview" hidden></canvas>
+    </div>
+
+    <canvas id="cropOverlay" class="crop-overlay" hidden></canvas>
+
+    <div class="crop-panel" id="cropPanel">
+      <div class="crop-panel-head">裁剪预览</div>
+      <canvas id="cropPreview"></canvas>
+    </div>
+
+    <div class="crop-actions" id="cropActions">
+      <span class="crop-tip">拖动四个角对齐纸边</span>
+      <button id="cropReset" class="btn btn-dark">重置</button>
+      <button id="cropCancel" class="btn btn-dark">取消</button>
+      <button id="cropApply" class="btn btn-primary">应用 (Enter)</button>
+    </div>
+
+    <div class="empty-state" id="empty">
+      <div class="empty-icon">⇪</div>
+      <h2>把图片拖进来，或点击选择</h2>
+      <p>自动把灰黄纸底洗成纯白，文字保持墨黑锐利。<br>支持 JPG / PNG / WEBP / HEIC（浏览器支持时），也可直接 Ctrl+V 粘贴。</p>
+      <div class="empty-actions">
+        <button class="btn btn-primary" id="btnPick">选择图片</button>
+        <button class="btn" id="btnSample">先看看示例</button>
+      </div>
+      <div class="empty-hint">全部运算在浏览器本地完成，不上传任何服务器</div>
+    </div>
+
+    <div class="drop-veil" id="dropVeil"><span>松手即可导入图片</span></div>
+
+    <div class="busy" id="busy"><span class="spinner"></span><span id="busyText">处理中…</span></div>
+
+    <div class="statusbar" id="statusbar">
+      <span id="stName">未选择图片</span>
+      <span class="dot"></span>
+      <span id="stSize">—</span>
+      <span class="dot"></span>
+      <span id="stTime">—</span>
+      <span class="grow"></span>
+      <span id="stMode">黑白文档</span>
+    </div>
+  </section>
+
+  <aside class="panel">
+
+    <section class="group">
+      <h3><i>1</i>去底</h3>
+      <div class="row">
+        <div class="seg" id="modeSeg">
+          <button data-mode="gray" class="on">黑白文档</button>
+          <button data-mode="color">保留彩色</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="lab"><span>去底强度</span><b id="vStrength">100</b></div>
+        <input type="range" id="strength" min="0" max="100" value="100">
+        <div class="hint">0 = 原图，100 = 完全按纸底归一化</div>
+      </div>
+      <div class="row">
+        <div class="lab"><span>背景范围</span><b id="vRadius">10</b></div>
+        <input type="range" id="radius" min="3" max="30" value="10">
+        <div class="hint">纸底不均匀时调大，字距较密时调小</div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h3><i>2</i>漂白与加深</h3>
+      <div class="row">
+        <div class="lab"><span>黑场 · 加深文字</span><b id="vBlack">40</b></div>
+        <input type="range" id="black" min="0" max="180" value="40">
+      </div>
+      <div class="row">
+        <div class="lab"><span>白场 · 洗白纸底</span><b id="vWhite">252</b></div>
+        <input type="range" id="white" min="180" max="255" value="252">
+      </div>
+      <div class="row">
+        <div class="lab"><span>锐化</span><b id="vSharpen">20</b></div>
+        <input type="range" id="sharpen" min="0" max="100" value="20">
+      </div>
+    </section>
+
+    <section class="group">
+      <h3><i>3</i>校正</h3>
+      <div class="row">
+        <button id="btnDeskew" class="btn btn-block">自动纠正倾斜</button>
+      </div>
+      <div class="row">
+        <div class="lab"><span>手动微调角度</span><b id="vAngle">0.0°</b></div>
+        <input type="range" id="angle" min="-15" max="15" step="0.1" value="0">
+      </div>
+      <div class="row btn-pair">
+        <button id="btnRotL" class="btn">↺ 左转 90°</button>
+        <button id="btnRotR" class="btn">↻ 右转 90°</button>
+      </div>
+      <div class="row btn-pair">
+        <button id="btnCrop" class="btn">透视裁剪</button>
+        <button id="btnClearCrop" class="btn" disabled>取消裁剪</button>
+      </div>
+      <div class="row toggle">
+        <span>反相（黑底白字）</span>
+        <button class="switch" id="invert" role="switch" aria-checked="false"></button>
+      </div>
+    </section>
+
+    <section class="group">
+      <h3><i>4</i>输出</h3>
+      <div class="row">
+        <div class="seg seg-sm" id="fmtSeg">
+          <button data-fmt="png" class="on">PNG</button>
+          <button data-fmt="jpeg">JPG</button>
+          <button data-fmt="webp">WEBP</button>
+        </div>
+      </div>
+      <div class="row" id="qualityRow" hidden>
+        <div class="lab"><span>画质</span><b id="vQuality">92</b></div>
+        <input type="range" id="quality" min="50" max="100" value="92">
+      </div>
+      <div class="row meta-row">
+        <span>导出尺寸</span><b id="outSize">—</b>
+      </div>
+      <div class="row btn-pair">
+        <button id="btnSavePanel" class="btn btn-primary">保存到本地</button>
+        <button id="btnPrintPanel" class="btn">打印…</button>
+      </div>
+    </section>
+
+    <section class="group group-footer">
+      <button id="btnReset" class="btn btn-ghost btn-block">重置全部参数</button>
+    </section>
+
+  </aside>
+</main>
+
+<!-- 打印设置 -->
+<div class="modal" id="printModal" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <h2>打印</h2>
+      <button class="btn btn-icon" id="printClose" title="关闭 (Esc)">✕</button>
+    </header>
+
+    <div class="modal-body">
+      <div class="print-stage">
+        <canvas id="printPreview"></canvas>
+      </div>
+
+      <div class="print-controls">
+        <div class="row">
+          <div class="lab"><span>纸张尺寸</span></div>
+          <select id="paperSel" class="select">
+            <option value="A4">A4 · 210 × 297 mm</option>
+            <option value="A5">A5 · 148 × 210 mm</option>
+            <option value="B5">B5 · 176 × 250 mm</option>
+            <option value="Letter">Letter · 215.9 × 279.4 mm</option>
+            <option value="custom">自定义…</option>
+          </select>
+        </div>
+
+        <div class="row" id="customPaperRow" hidden>
+          <div class="lab"><span>宽 × 高 (mm)</span></div>
+          <div class="inline-inputs">
+            <input type="number" id="paperW" class="input" min="50" max="1000" step="1" value="210">
+            <span>×</span>
+            <input type="number" id="paperH" class="input" min="50" max="1000" step="1" value="297">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="lab"><span>方向</span></div>
+          <div class="seg seg-sm" id="orientSeg">
+            <button data-orient="auto" class="on">自动</button>
+            <button data-orient="portrait">纵向</button>
+            <button data-orient="landscape">横向</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="lab"><span>页边距</span><b id="vMargin">10 mm</b></div>
+          <input type="range" id="margin" min="0" max="30" step="1" value="10">
+        </div>
+
+        <div class="row">
+          <div class="lab"><span>缩放方式</span></div>
+          <div class="seg seg-sm" id="fitSeg">
+            <button data-fit="contain" class="on">适应页面</button>
+            <button data-fit="cover">铺满页面</button>
+          </div>
+        </div>
+
+        <p class="print-note" id="printInfo">—</p>
+      </div>
+    </div>
+
+    <footer class="modal-foot">
+      <span class="modal-foot-hint">将打开系统打印对话框，可选择打印机或「另存为 PDF」</span>
+      <span class="grow"></span>
+      <button class="btn" id="printCancel">取消</button>
+      <button class="btn btn-primary" id="printGo">打印</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="src/js/utils.js"></script>
+<script src="src/js/state.js"></script>
+<script src="src/js/geometry.js"></script>
+<script src="src/js/enhance.js"></script>
+<script src="src/js/perspective.js"></script>
+<script src="src/js/crop.js"></script>
+<script src="src/js/printer.js"></script>
+<script src="src/js/app.js"></script>
+</body>
+</html>
